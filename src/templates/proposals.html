@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}Proposals — Up-take{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Proposals</h1>
+      <p class="text-sm text-gray-400 mt-1">Review, edit, and approve generated proposals.</p>
+    </div>
+    <div class="flex gap-2">
+      <select id="status-filter" onchange="loadProposals()"
+        class="text-sm bg-gray-800 border border-gray-700 text-gray-200 px-3 py-1.5 rounded-lg outline-none">
+        <option value="">All statuses</option>
+        <option value="draft" selected>Draft</option>
+        <option value="approved">Approved</option>
+        <option value="submitted">Submitted</option>
+        <option value="skipped">Skipped</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="proposals-list" class="space-y-4">
+    <div class="animate-pulse space-y-4">
+      <div class="h-40 bg-gray-900 rounded-xl border border-gray-800"></div>
+      <div class="h-40 bg-gray-900 rounded-xl border border-gray-800"></div>
+    </div>
+  </div>
+
+  <!-- Pagination -->
+  <div id="pagination" class="flex justify-center gap-2"></div>
+
+</div>
+
+<!-- Modal: full proposal view + edit -->
+<div id="modal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+  <div class="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-gray-800">
+      <h3 id="modal-title" class="text-base font-semibold text-white">Proposal</h3>
+      <button onclick="closeModal()" class="text-gray-400 hover:text-white text-xl leading-none">×</button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-4 space-y-3">
+      <div id="modal-job-info" class="text-sm text-gray-400"></div>
+      <textarea id="modal-text"
+        class="w-full h-64 bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 resize-none outline-none focus:border-indigo-500">
+      </textarea>
+      <div id="modal-quality" class="text-xs text-gray-500"></div>
+    </div>
+    <div class="p-4 border-t border-gray-800 flex gap-2">
+      <button id="modal-approve-btn"
+        class="flex-1 bg-green-700 hover:bg-green-600 text-white text-sm py-2 rounded-lg transition font-medium">
+        ✅ Approve &amp; Copy
+      </button>
+      <button onclick="copyToClipboard(document.getElementById('modal-text').value); showToast('Copied!')"
+        class="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm px-4 py-2 rounded-lg transition">
+        Copy
+      </button>
+      <button id="modal-skip-btn"
+        class="bg-gray-800 hover:bg-gray-700 text-gray-400 text-sm px-4 py-2 rounded-lg transition">
+        Skip
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentPage = 1;
+  let currentProposalId = null;
+  let currentJobUrl = null;
+
+  document.addEventListener('DOMContentLoaded', () => loadProposals());
+
+  async function loadProposals(page = 1) {
+    currentPage = page;
+    const status = document.getElementById('status-filter').value;
+    const qs = `?per_page=10&page=${page}${status ? '&status=' + status : ''}`;
+    const r = await fetch('/api/v1/proposals/' + qs);
+    const data = await r.json();
+    const el = document.getElementById('proposals-list');
+
+    if (!data.proposals?.length) {
+      el.innerHTML = '<div class="bg-gray-900 rounded-xl border border-gray-800 p-8 text-center text-gray-500 text-sm">No proposals found.</div>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    el.innerHTML = data.proposals.map(p => proposalCard(p)).join('');
+
+    // Pagination
+    const pages = Math.ceil(data.total / 10);
+    const pg = document.getElementById('pagination');
+    pg.innerHTML = pages > 1 ? Array.from({length: pages}, (_, i) => i + 1).map(n =>
+      `<button onclick="loadProposals(${n})"
+        class="px-3 py-1 rounded text-sm ${n === page ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}">${n}</button>`
+    ).join('') : '';
+  }
+
+  function proposalCard(p) {
+    const qColor = p.quality_score >= 8 ? 'text-green-400' : p.quality_score >= 6 ? 'text-yellow-400' : 'text-red-400';
+    const statusColor = {
+      draft: 'bg-blue-900 text-blue-300',
+      approved: 'bg-green-900 text-green-300',
+      submitted: 'bg-indigo-900 text-indigo-300',
+      skipped: 'bg-gray-800 text-gray-500',
+    }[p.status] || 'bg-gray-800 text-gray-400';
+
+    const preview = (p.proposal_text || '').substring(0, 200) + (p.proposal_text?.length > 200 ? '…' : '');
+
+    return `
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+      <div class="flex items-start justify-between gap-4 mb-3">
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-white truncate">${p.job_title || 'Untitled Job'}</p>
+          <div class="flex items-center gap-3 mt-1">
+            <span class="text-xs px-1.5 py-0.5 rounded ${statusColor}">${p.status}</span>
+            <span class="text-xs ${qColor}">Quality: ${p.quality_score?.toFixed(1) || '?'}/10</span>
+            <span class="text-xs text-gray-500">${p.word_count || 0} words</span>
+          </div>
+        </div>
+        ${p.status === 'draft' ? `
+        <div class="flex gap-2 shrink-0">
+          <button onclick="openModal('${p.id}')"
+            class="text-xs bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg transition">Review</button>
+          <button onclick="quickApprove('${p.id}', '${p.job_url || ''}')"
+            class="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg transition">Approve</button>
+          <button onclick="skipProposal('${p.id}')"
+            class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition">Skip</button>
+        </div>` : `
+        <div class="flex gap-2 shrink-0">
+          <button onclick="openModal('${p.id}')"
+            class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition">View</button>
+          ${p.status === 'approved' ? `
+          <button onclick="markSubmitted('${p.id}')"
+            class="text-xs bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg transition">Mark Submitted</button>
+          ` : ''}
+        </div>`}
+      </div>
+      <p class="text-xs text-gray-500 leading-relaxed">${preview}</p>
+      ${p.job_url ? `<a href="${p.job_url}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mt-2 inline-block">View job ↗</a>` : ''}
+    </div>`;
+  }
+
+  async function openModal(proposalId) {
+    currentProposalId = proposalId;
+    const r = await fetch(`/api/v1/proposals/${proposalId}`);
+    const p = await r.json();
+    currentJobUrl = p.job_url;
+
+    document.getElementById('modal-title').textContent = p.job_title || 'Proposal';
+    document.getElementById('modal-text').value = p.proposal_text || '';
+    document.getElementById('modal-job-info').innerHTML =
+      `<span class="font-medium text-gray-300">${p.job_title || ''}</span>` +
+      (p.job_url ? ` · <a href="${p.job_url}" target="_blank" class="text-indigo-400 hover:underline">View job ↗</a>` : '');
+
+    const qd = p.quality_detail || {};
+    document.getElementById('modal-quality').textContent =
+      `Quality: ${p.quality_score?.toFixed(1) || '?'}/10 · ` +
+      `Specificity: ${qd.specificity || '?'} · Persuasiveness: ${qd.persuasiveness || '?'} · Authenticity: ${qd.authenticity || '?'}`;
+
+    const approveBtn = document.getElementById('modal-approve-btn');
+    const skipBtn = document.getElementById('modal-skip-btn');
+
+    if (p.status === 'draft') {
+      approveBtn.classList.remove('hidden');
+      skipBtn.classList.remove('hidden');
+      approveBtn.onclick = () => approveFromModal();
+      skipBtn.onclick = () => skipFromModal();
+    } else {
+      approveBtn.classList.add('hidden');
+      skipBtn.classList.add('hidden');
+    }
+
+    document.getElementById('modal').classList.remove('hidden');
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.add('hidden');
+    currentProposalId = null;
+  }
+
+  async function approveFromModal() {
+    const text = document.getElementById('modal-text').value;
+    const r = await fetch(`/api/v1/proposals/${currentProposalId}/approve`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({edited_text: text}),
+    });
+    const data = await r.json();
+    if (data.status === 'approved') {
+      copyToClipboard(text);
+      if (currentJobUrl) window.open(currentJobUrl, '_blank');
+      showToast('Approved! Proposal copied. Opening job…');
+      closeModal();
+      loadProposals(currentPage);
+    } else {
+      showToast(data.detail || 'Error approving');
+    }
+  }
+
+  async function quickApprove(id, jobUrl) {
+    const r = await fetch(`/api/v1/proposals/${id}/approve`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({})
+    });
+    const data = await r.json();
+    if (data.proposal_text) {
+      copyToClipboard(data.proposal_text);
+      if (jobUrl) window.open(jobUrl, '_blank');
+      showToast('Approved! Copied to clipboard. Opening job…');
+      loadProposals(currentPage);
+    } else {
+      showToast(data.detail || 'Error');
+    }
+  }
+
+  async function skipFromModal() {
+    await fetch(`/api/v1/proposals/${currentProposalId}/skip`, {method: 'POST'});
+    showToast('Skipped');
+    closeModal();
+    loadProposals(currentPage);
+  }
+
+  async function skipProposal(id) {
+    await fetch(`/api/v1/proposals/${id}/skip`, {method: 'POST'});
+    showToast('Skipped');
+    loadProposals(currentPage);
+  }
+
+  async function markSubmitted(id) {
+    await fetch(`/api/v1/proposals/${id}/submitted`, {method: 'POST'});
+    showToast('Marked as submitted');
+    loadProposals(currentPage);
+  }
+
+  // Close modal on backdrop click
+  document.getElementById('modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('modal')) closeModal();
+  });
+</script>
+{% endblock %}

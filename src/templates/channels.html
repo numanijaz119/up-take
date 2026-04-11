@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Channels — Up-take{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Detection Channels</h1>
+      <p class="text-sm text-gray-400 mt-1">Enable or disable job discovery channels. Each channel feeds into the same pipeline.</p>
+    </div>
+  </div>
+
+  <!-- Channels list -->
+  <div id="channels-list" class="space-y-4">
+    <div class="animate-pulse space-y-4">
+      <div class="h-28 bg-gray-900 rounded-xl border border-gray-800"></div>
+    </div>
+  </div>
+
+  <!-- Search Configs section -->
+  <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-sm font-semibold text-gray-200">Search Configurations</h2>
+        <p class="text-xs text-gray-500 mt-0.5">Upwork search URLs the browser channel will monitor.</p>
+      </div>
+      <button onclick="showAddConfig()"
+        class="text-xs bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg transition">
+        + Add Config
+      </button>
+    </div>
+
+    <div id="config-list"></div>
+
+    <!-- Add config form (hidden by default) -->
+    <div id="add-config-form" class="hidden mt-4 bg-gray-800 rounded-lg p-4 space-y-3">
+      <input id="cfg-name" type="text" placeholder="Name (e.g. Python Backend)"
+        class="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:border-indigo-500 outline-none" />
+      <input id="cfg-url" type="url" placeholder="Upwork search URL"
+        class="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:border-indigo-500 outline-none" />
+      <input id="cfg-category" type="text" placeholder="Category (optional)"
+        class="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:border-indigo-500 outline-none" />
+      <div class="flex gap-2">
+        <button onclick="saveConfig()"
+          class="text-sm bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition">Save</button>
+        <button onclick="document.getElementById('add-config-form').classList.add('hidden')"
+          class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-lg transition">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    loadChannels();
+    loadConfigs();
+  });
+
+  async function loadChannels() {
+    const r = await fetch('/api/v1/channels/');
+    const data = await r.json();
+    const el = document.getElementById('channels-list');
+    if (!data.channels?.length) {
+      el.innerHTML = '<p class="text-gray-500 text-sm">No channels registered.</p>';
+      return;
+    }
+    el.innerHTML = data.channels.map(ch => channelCard(ch)).join('');
+  }
+
+  function channelCard(ch) {
+    const runningDot = ch.is_running
+      ? '<span class="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"></span>'
+      : '<span class="w-2 h-2 rounded-full bg-gray-600 inline-block"></span>';
+
+    const statusText = ch.is_running ? 'Running' : (ch.is_enabled ? 'Starting…' : 'Stopped');
+    const statusColor = ch.is_running ? 'text-green-400' : 'text-gray-500';
+
+    return `
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-1">
+            ${runningDot}
+            <h3 class="text-base font-semibold text-white">${ch.display_name}</h3>
+            <span class="text-xs ${statusColor}">${statusText}</span>
+          </div>
+          <p class="text-sm text-gray-400">${ch.description}</p>
+          ${ch.last_run_at ? `<p class="text-xs text-gray-600 mt-1">Last run: ${new Date(ch.last_run_at).toLocaleString()}</p>` : ''}
+          ${ch.error_message ? `<p class="text-xs text-red-400 mt-1">Error: ${ch.error_message}</p>` : ''}
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          ${ch.is_running ? `
+            <button onclick="triggerSession('${ch.channel_id}')"
+              class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition">
+              ▶ Run Now
+            </button>` : ''}
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="sr-only peer" ${ch.is_enabled ? 'checked' : ''}
+              onchange="toggleChannel('${ch.channel_id}', this.checked)">
+            <div class="w-11 h-6 bg-gray-700 peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer
+              peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+              after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all
+              peer-checked:bg-indigo-600"></div>
+          </label>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  async function toggleChannel(channelId, enabled) {
+    const r = await fetch(`/api/v1/channels/${channelId}/toggle`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled}),
+    });
+    const data = await r.json();
+    showToast(enabled ? `${channelId} enabled` : `${channelId} stopped`);
+    setTimeout(() => loadChannels(), 1200);
+  }
+
+  async function triggerSession(channelId) {
+    const r = await fetch(`/api/v1/channels/${channelId}/trigger`, {method: 'POST'});
+    const data = await r.json();
+    showToast(data.message || 'Session triggered');
+  }
+
+  async function loadConfigs() {
+    const r = await fetch('/api/v1/search-configs/');
+    const data = await r.json();
+    const el = document.getElementById('config-list');
+    if (!data.configs?.length) {
+      el.innerHTML = '<p class="text-sm text-gray-500">No search configurations yet. Add one above.</p>';
+      return;
+    }
+    el.innerHTML = data.configs.map(c => `
+      <div class="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
+        <div class="min-w-0">
+          <p class="text-sm text-gray-200">${c.name}</p>
+          <p class="text-xs text-gray-500 truncate max-w-md">${c.url}</p>
+        </div>
+        <div class="flex items-center gap-2 ml-3">
+          <span class="text-xs px-1.5 py-0.5 rounded ${c.is_active ? 'bg-green-900 text-green-300' : 'bg-gray-800 text-gray-500'}">
+            ${c.is_active ? 'Active' : 'Inactive'}
+          </span>
+          <button onclick="deleteConfig('${c.id}')"
+            class="text-xs text-red-400 hover:text-red-300 transition">Delete</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function showAddConfig() {
+    document.getElementById('add-config-form').classList.remove('hidden');
+  }
+
+  async function saveConfig() {
+    const name = document.getElementById('cfg-name').value.trim();
+    const url = document.getElementById('cfg-url').value.trim();
+    const category = document.getElementById('cfg-category').value.trim();
+    if (!name || !url) { showToast('Name and URL are required'); return; }
+    await fetch('/api/v1/search-configs/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, url, category: category || null}),
+    });
+    document.getElementById('add-config-form').classList.add('hidden');
+    document.getElementById('cfg-name').value = '';
+    document.getElementById('cfg-url').value = '';
+    document.getElementById('cfg-category').value = '';
+    showToast('Search config added');
+    loadConfigs();
+  }
+
+  async function deleteConfig(id) {
+    if (!confirm('Delete this search config?')) return;
+    await fetch(`/api/v1/search-configs/${id}`, {method: 'DELETE'});
+    showToast('Deleted');
+    loadConfigs();
+  }
+</script>
+{% endblock %}

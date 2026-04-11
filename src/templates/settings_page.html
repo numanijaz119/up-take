@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Settings — Up-take{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+
+  <div>
+    <h1 class="text-2xl font-bold text-white">Settings</h1>
+    <p class="text-sm text-gray-400 mt-1">Configure your profile, safety limits, and filter preferences.</p>
+  </div>
+
+  <!-- Profile -->
+  <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+    <h2 class="text-sm font-semibold text-gray-200 mb-4">Freelancer Profile</h2>
+    <div class="space-y-3" id="profile-form">
+      <div class="animate-pulse space-y-3">
+        <div class="h-8 bg-gray-800 rounded"></div>
+        <div class="h-8 bg-gray-800 rounded"></div>
+      </div>
+    </div>
+    <div class="mt-4 flex gap-2">
+      <button onclick="saveProfile()"
+        class="text-sm bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition">
+        Save Profile
+      </button>
+      <button onclick="createProfile()"
+        class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-lg transition">
+        Create New Profile
+      </button>
+    </div>
+  </div>
+
+  <!-- Safety Settings -->
+  <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+    <h2 class="text-sm font-semibold text-gray-200 mb-4">Safety Limits</h2>
+    <div id="safety-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="animate-pulse col-span-2 h-40 bg-gray-800 rounded"></div>
+    </div>
+    <button onclick="saveSafety()"
+      class="mt-4 text-sm bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition">
+      Save Safety Settings
+    </button>
+    <p class="text-xs text-gray-500 mt-2">Changes apply immediately but reset on restart. Add to .env for persistence.</p>
+  </div>
+
+  <!-- Filter Preferences -->
+  <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+    <h2 class="text-sm font-semibold text-gray-200 mb-4">Filter Preferences</h2>
+    <div class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Min Budget ($)</label>
+          <input id="pref-min-budget" type="number" min="0"
+            class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Min Client Spent ($)</label>
+          <input id="pref-min-client-spent" type="number" min="0"
+            class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Max Existing Proposals</label>
+          <input id="pref-max-proposals" type="number" min="0"
+            class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Min Skill Overlap</label>
+          <input id="pref-skill-overlap" type="number" min="0"
+            class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="pref-payment-verified" type="checkbox"
+          class="w-4 h-4 bg-gray-800 border-gray-600 rounded text-indigo-600" />
+        <label for="pref-payment-verified" class="text-sm text-gray-300">Require payment verified</label>
+      </div>
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Blacklist Keywords (one per line)</label>
+        <textarea id="pref-blacklist" rows="3"
+          class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500 resize-none"></textarea>
+      </div>
+    </div>
+    <button onclick="savePreferences()"
+      class="mt-4 text-sm bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition">
+      Save Filter Preferences
+    </button>
+  </div>
+
+</div>
+
+<script>
+  let profileExists = false;
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    loadProfile();
+    loadSafety();
+  });
+
+  async function loadProfile() {
+    try {
+      const r = await fetch('/api/v1/profile/');
+      if (r.status === 404) {
+        profileExists = false;
+        renderProfileForm({});
+        return;
+      }
+      const p = await r.json();
+      profileExists = true;
+      renderProfileForm(p);
+
+      // Prefill filter prefs
+      const prefs = p.preferences || {};
+      if (prefs.min_budget != null) document.getElementById('pref-min-budget').value = prefs.min_budget;
+      if (prefs.min_client_spent != null) document.getElementById('pref-min-client-spent').value = prefs.min_client_spent;
+      if (prefs.max_existing_proposals != null) document.getElementById('pref-max-proposals').value = prefs.max_existing_proposals;
+      if (prefs.min_skill_overlap != null) document.getElementById('pref-skill-overlap').value = prefs.min_skill_overlap;
+      document.getElementById('pref-payment-verified').checked = prefs.require_payment_verified !== false;
+      if (prefs.blacklist_keywords?.length) {
+        document.getElementById('pref-blacklist').value = prefs.blacklist_keywords.join('\n');
+      }
+    } catch(e) {
+      profileExists = false;
+      renderProfileForm({});
+    }
+  }
+
+  function renderProfileForm(p) {
+    document.getElementById('profile-form').innerHTML = `
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Full Name</label>
+        <input id="p-name" type="text" value="${p.name || ''}"
+          class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Skills (comma-separated)</label>
+        <input id="p-skills" type="text" value="${(p.skills || []).join(', ')}"
+          class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Experience Summary</label>
+        <textarea id="p-experience" rows="3"
+          class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500 resize-none">${p.experience_summary || ''}</textarea>
+      </div>
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Tone Description</label>
+        <input id="p-tone" type="text" value="${p.tone_description || 'Professional, concise, confident.'}"
+          class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Min Rate ($/hr)</label>
+          <input id="p-rate-min" type="number" value="${p.rate_min || ''}"
+            class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Max Rate ($/hr)</label>
+          <input id="p-rate-max" type="number" value="${p.rate_max || ''}"
+            class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+        </div>
+      </div>
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Max Proposal Words</label>
+        <input id="p-max-words" type="number" value="${p.max_proposal_words || 200}"
+          class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Sample Winning Proposals (one per block — separate with ---)</label>
+        <textarea id="p-samples" rows="6"
+          class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500 resize-none">${(p.sample_proposals || []).join('\n---\n')}</textarea>
+      </div>
+    `;
+  }
+
+  async function saveProfile() {
+    const samples = document.getElementById('p-samples').value
+      .split('---').map(s => s.trim()).filter(Boolean);
+    const body = {
+      name: document.getElementById('p-name').value.trim(),
+      skills: document.getElementById('p-skills').value.split(',').map(s=>s.trim()).filter(Boolean),
+      experience_summary: document.getElementById('p-experience').value.trim(),
+      tone_description: document.getElementById('p-tone').value.trim(),
+      rate_min: parseFloat(document.getElementById('p-rate-min').value) || null,
+      rate_max: parseFloat(document.getElementById('p-rate-max').value) || null,
+      max_proposal_words: parseInt(document.getElementById('p-max-words').value) || 200,
+      sample_proposals: samples,
+    };
+    const method = profileExists ? 'PUT' : 'POST';
+    const r = await fetch('/api/v1/profile/', {
+      method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    if (r.ok) { showToast('Profile saved'); profileExists = true; }
+    else { const e = await r.json(); showToast(e.detail || 'Error saving profile'); }
+  }
+
+  async function createProfile() {
+    profileExists = false;
+    renderProfileForm({});
+    showToast('Fill in the form and click Save Profile');
+  }
+
+  async function loadSafety() {
+    const r = await fetch('/api/v1/settings/safety');
+    const s = await r.json();
+    document.getElementById('safety-form').innerHTML = `
+      ${safetyField('max_proposals_per_day', 'Max Proposals/Day', s.max_proposals_per_day)}
+      ${safetyField('max_proposals_per_hour', 'Max Proposals/Hour', s.max_proposals_per_hour)}
+      ${safetyField('min_seconds_between_proposals', 'Min Interval (seconds)', s.min_seconds_between_proposals)}
+      ${safetyField('min_opportunity_score', 'Min Opportunity Score (0–100)', s.min_opportunity_score)}
+      ${safetyField('min_proposal_quality', 'Min Proposal Quality (0–10)', s.min_proposal_quality)}
+      ${safetyField('active_hours_start', 'Active Hours Start (24h)', s.active_hours_start)}
+      ${safetyField('active_hours_end', 'Active Hours End (24h)', s.active_hours_end)}
+      ${safetyField('max_connects_per_day', 'Max Connects/Day', s.max_connects_per_day)}
+    `;
+  }
+
+  function safetyField(id, label, value) {
+    return `<div>
+      <label class="text-xs text-gray-400 block mb-1">${label}</label>
+      <input id="sf-${id}" type="number" value="${value}"
+        class="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-lg border border-gray-700 outline-none focus:border-indigo-500" />
+    </div>`;
+  }
+
+  async function saveSafety() {
+    const fields = ['max_proposals_per_day','max_proposals_per_hour','min_seconds_between_proposals',
+      'min_opportunity_score','min_proposal_quality','active_hours_start','active_hours_end','max_connects_per_day'];
+    const body = {};
+    fields.forEach(f => {
+      const v = document.getElementById(`sf-${f}`)?.value;
+      if (v !== '' && v != null) body[f] = parseFloat(v);
+    });
+    const r = await fetch('/api/v1/settings/safety', {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    if (r.ok) showToast('Safety settings saved');
+    else showToast('Error saving');
+  }
+
+  async function savePreferences() {
+    const blacklist = document.getElementById('pref-blacklist').value
+      .split('\n').map(s=>s.trim()).filter(Boolean);
+    const body = {
+      min_budget: parseFloat(document.getElementById('pref-min-budget').value) || 0,
+      min_client_spent: parseFloat(document.getElementById('pref-min-client-spent').value) || 0,
+      max_existing_proposals: parseInt(document.getElementById('pref-max-proposals').value) || 50,
+      min_skill_overlap: parseInt(document.getElementById('pref-skill-overlap').value) || 1,
+      require_payment_verified: document.getElementById('pref-payment-verified').checked,
+      blacklist_keywords: blacklist,
+    };
+    const r = await fetch('/api/v1/profile/preferences', {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    if (r.ok) showToast('Filter preferences saved');
+    else showToast('Error — create a profile first');
+  }
+</script>
+{% endblock %}

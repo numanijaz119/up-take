@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Jobs — Up-take{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Discovered Jobs</h1>
+      <p class="text-sm text-gray-400 mt-1">All jobs detected across active channels.</p>
+    </div>
+    <div class="flex gap-2 items-center">
+      <select id="status-filter" onchange="loadJobs()"
+        class="text-sm bg-gray-800 border border-gray-700 text-gray-200 px-3 py-1.5 rounded-lg outline-none">
+        <option value="">All statuses</option>
+        <option value="new">New</option>
+        <option value="proposed">Proposed</option>
+        <option value="submitted">Submitted</option>
+        <option value="filtered_out">Filtered Out</option>
+        <option value="skipped">Skipped</option>
+      </select>
+      <input id="min-score" type="number" placeholder="Min score" min="0" max="100"
+        onchange="loadJobs()"
+        class="w-24 text-sm bg-gray-800 border border-gray-700 text-gray-200 px-3 py-1.5 rounded-lg outline-none" />
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div id="job-stats" class="flex gap-4 text-sm text-gray-400">
+    <span class="animate-pulse bg-gray-800 rounded h-5 w-32"></span>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-gray-500 border-b border-gray-800 bg-gray-900/80">
+            <th class="px-4 py-3 font-medium">Title</th>
+            <th class="px-4 py-3 font-medium">Score</th>
+            <th class="px-4 py-3 font-medium">Budget</th>
+            <th class="px-4 py-3 font-medium">Status</th>
+            <th class="px-4 py-3 font-medium">Source</th>
+            <th class="px-4 py-3 font-medium">Detected</th>
+            <th class="px-4 py-3 font-medium"></th>
+          </tr>
+        </thead>
+        <tbody id="jobs-tbody">
+          <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pagination -->
+  <div id="pagination" class="flex justify-center gap-2"></div>
+</div>
+
+<!-- Job detail modal -->
+<div id="job-modal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+  <div class="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-gray-800">
+      <h3 id="jm-title" class="text-base font-semibold text-white truncate pr-4">Job Detail</h3>
+      <button onclick="closeJobModal()" class="text-gray-400 hover:text-white text-xl leading-none shrink-0">×</button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
+      <div id="jm-body"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentPage = 1;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadJobs();
+    loadStats();
+  });
+
+  async function loadStats() {
+    const r = await fetch('/api/v1/jobs/stats');
+    const data = await r.json();
+    const s = data.by_status || {};
+    document.getElementById('job-stats').innerHTML =
+      `<span>${data.total} total</span>` +
+      Object.entries(s).map(([k,v]) =>
+        `<span class="text-gray-600">·</span> <span>${v} ${k}</span>`
+      ).join('');
+  }
+
+  async function loadJobs(page = 1) {
+    currentPage = page;
+    const status = document.getElementById('status-filter').value;
+    const minScore = document.getElementById('min-score').value;
+    let qs = `?per_page=20&page=${page}`;
+    if (status) qs += `&status=${status}`;
+    if (minScore) qs += `&min_score=${minScore}`;
+
+    const r = await fetch('/api/v1/jobs/' + qs);
+    const data = await r.json();
+    const tbody = document.getElementById('jobs-tbody');
+
+    if (!data.jobs?.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">No jobs found.</td></tr>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = data.jobs.map(j => jobRow(j)).join('');
+
+    const pages = Math.ceil(data.total / 20);
+    const pg = document.getElementById('pagination');
+    pg.innerHTML = pages > 1 ? Array.from({length: Math.min(pages, 10)}, (_, i) => i + 1).map(n =>
+      `<button onclick="loadJobs(${n})"
+        class="px-3 py-1 rounded text-sm ${n === page ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}">${n}</button>`
+    ).join('') : '';
+  }
+
+  function jobRow(j) {
+    const qColor = j.opportunity_score >= 80 ? 'bg-green-900 text-green-300'
+      : j.opportunity_score >= 60 ? 'bg-yellow-900 text-yellow-300'
+      : j.opportunity_score ? 'bg-gray-800 text-gray-400' : '';
+
+    const statusColor = {
+      new: 'bg-blue-900 text-blue-300',
+      proposed: 'bg-indigo-900 text-indigo-300',
+      submitted: 'bg-green-900 text-green-300',
+      filtered_out: 'bg-gray-800 text-gray-500',
+      skipped: 'bg-gray-800 text-gray-500',
+      analyzing: 'bg-purple-900 text-purple-300',
+    }[j.status] || 'bg-gray-800 text-gray-400';
+
+    const budget = j.budget?.amount ? `$${j.budget.amount}` : j.budget?.raw || '—';
+
+    return `<tr class="border-b border-gray-800/50 hover:bg-gray-800/30 cursor-pointer" onclick="openJobModal('${j.upwork_id}')">
+      <td class="px-4 py-3 max-w-xs">
+        <p class="text-gray-200 truncate">${j.title || '—'}</p>
+        <p class="text-xs text-gray-500 truncate">${(j.skills || []).slice(0,3).join(', ') || ''}</p>
+      </td>
+      <td class="px-4 py-3">
+        ${j.opportunity_score != null
+          ? `<span class="text-xs px-1.5 py-0.5 rounded ${qColor}">${j.opportunity_score}</span>`
+          : '<span class="text-gray-600 text-xs">—</span>'}
+      </td>
+      <td class="px-4 py-3 text-gray-400 text-xs">${budget}</td>
+      <td class="px-4 py-3">
+        <span class="text-xs px-1.5 py-0.5 rounded ${statusColor}">${j.status}</span>
+      </td>
+      <td class="px-4 py-3 text-gray-500 text-xs">${j.detected_via || '—'}</td>
+      <td class="px-4 py-3 text-gray-500 text-xs">${timeAgo(j.detected_at)}</td>
+      <td class="px-4 py-3">
+        ${j.url ? `<a href="${j.url}" target="_blank" onclick="event.stopPropagation()"
+          class="text-xs text-indigo-400 hover:text-indigo-300">↗</a>` : ''}
+      </td>
+    </tr>`;
+  }
+
+  async function openJobModal(jobId) {
+    const r = await fetch(`/api/v1/jobs/${jobId}`);
+    const j = await r.json();
+    document.getElementById('jm-title').textContent = j.title || 'Job Detail';
+    const a = j.analysis;
+    document.getElementById('jm-body').innerHTML = `
+      <div class="grid grid-cols-2 gap-3 text-xs text-gray-400 mb-4">
+        <div><span class="text-gray-500">Budget:</span> ${j.budget?.raw || j.budget?.amount || '—'}</div>
+        <div><span class="text-gray-500">Type:</span> ${j.job_type || '—'}</div>
+        <div><span class="text-gray-500">Duration:</span> ${j.duration || '—'}</div>
+        <div><span class="text-gray-500">Experience:</span> ${j.experience_level || '—'}</div>
+        <div><span class="text-gray-500">Proposals:</span> ${j.proposals_count || '—'}</div>
+        <div><span class="text-gray-500">Posted:</span> ${j.posted_at || '—'}</div>
+      </div>
+      ${j.description ? `<div class="bg-gray-800 rounded-lg p-3 text-gray-300 text-xs leading-relaxed max-h-40 overflow-y-auto">${j.description}</div>` : ''}
+      ${j.skills?.length ? `<div class="flex flex-wrap gap-1 mt-2">${j.skills.map(s => `<span class="bg-gray-800 text-gray-400 text-xs px-2 py-0.5 rounded">${s}</span>`).join('')}</div>` : ''}
+      ${a ? `
+        <div class="mt-4 border-t border-gray-800 pt-4">
+          <p class="text-xs font-semibold text-gray-300 mb-2">AI Analysis</p>
+          <div class="grid grid-cols-3 gap-3 text-xs mb-3">
+            <div class="bg-gray-800 rounded p-2 text-center"><p class="text-gray-500">Opportunity</p><p class="text-lg font-bold text-white">${a.opportunity_score}</p></div>
+            <div class="bg-gray-800 rounded p-2 text-center"><p class="text-gray-500">Relevance</p><p class="text-lg font-bold text-white">${a.relevance_score}</p></div>
+            <div class="bg-gray-800 rounded p-2 text-center"><p class="text-gray-500">Cl. Quality</p><p class="text-lg font-bold text-white">${a.client_quality}</p></div>
+          </div>
+          ${a.red_flags?.length ? `<div class="text-xs text-red-400 mb-2">⚠ ${a.red_flags.join(' · ')}</div>` : ''}
+          <p class="text-xs text-gray-400">${a.reasoning || ''}</p>
+        </div>` : ''}
+      ${j.url ? `<a href="${j.url}" target="_blank" class="mt-3 inline-block text-xs text-indigo-400 hover:underline">View on Upwork ↗</a>` : ''}
+    `;
+    document.getElementById('job-modal').classList.remove('hidden');
+  }
+
+  function closeJobModal() {
+    document.getElementById('job-modal').classList.add('hidden');
+  }
+
+  document.getElementById('job-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('job-modal')) closeJobModal();
+  });
+
+  function timeAgo(iso) {
+    if (!iso) return '—';
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h/24)}d ago`;
+  }
+</script>
+{% endblock %}

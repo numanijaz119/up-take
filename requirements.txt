@@ -13,8 +13,13 @@ redis[hiredis]==5.1.1
 
 # Browser automation
 playwright==1.48.0
-playwright-stealth==1.0.6
+# rebrowser-playwright patches Playwright's CDP protocol to hide automation
+# signals from Cloudflare's in-page JS detection (drop-in playwright replacement).
+rebrowser-playwright
 fake-useragent==1.5.1
+# Reads cookies from your installed Chrome — used by cookie_import.py to
+# bypass Cloudflare on the login page (see src/channels/browser/cookie_import.py)
+browser-cookie3==0.20.1
 
 # LLM
 anthropic==0.34.2

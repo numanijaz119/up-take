@@ -1,18 +1,16 @@
 """
-One-time manual login script — run this once to save your Upwork session.
+LEGACY — Manual login via Playwright-controlled Chrome.
 
-Usage:
-    python -m src.channels.browser.save_session
+⚠️  Cloudflare Turnstile detects Playwright on the login page and loops the
+    challenge indefinitely. This script will probably NOT work for you.
 
-What it does:
-1. Opens a real visible Chrome browser
-2. Navigates to https://www.upwork.com/login
-3. Waits for you to log in manually (up to 3 minutes)
-4. Detects when you reach the Upwork dashboard / home feed
-5. Saves the session cookies + storage to sessions/upwork_session.json
-6. The automated browser will load this file on every future session
+✅  PREFERRED: use src/channels/browser/cookie_import.py instead.
+    1. Log into Upwork in your normal Chrome (no Playwright involved)
+    2. Run:  python -m src.channels.browser.cookie_import
+    3. Done — cookies are extracted from Chrome's database directly.
 
-You only need to run this once, or again if the session expires (~30 days).
+This file is kept as a fallback in case cookie_import fails (rare Chrome
+encryption issues, non-default profile path, etc.).
 """
 import asyncio
 import json
@@ -31,7 +29,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 SESSION_PATH = Path("sessions") / "upwork_session.json"
 LOGIN_URL = "https://www.upwork.com/ab/account-security/login"
-SUCCESS_URL_FRAGMENTS = ["/nx/find-work", "/nx/jobs", "/home", "/dashboard"]
+SUCCESS_URL_FRAGMENTS = [
+    "/nx/find-work/best-matches",   # confirmed post-login landing page
+    "/nx/find-work",                # broader fallback (other find-work sub-pages)
+    "/nx/jobs",
+    "/home",
+    "/dashboard",
+]
 LOGIN_WAIT_TIMEOUT_S = 180  # 3 minutes
 
 
@@ -49,11 +53,20 @@ async def main():
     logger.info("")
 
     async with async_playwright() as p:
+        # channel="chrome" launches your real installed Chrome binary instead of
+        # Playwright's bundled Chromium. This is critical for the login page:
+        # Cloudflare Turnstile detects Playwright's Chromium and loops the challenge
+        # infinitely even after a successful human click. Real Chrome passes the
+        # browser-fingerprint check so Turnstile accepts the click and moves on.
+        #
+        # Requires Google Chrome to be installed at its default path.
+        # If Chrome is not found, Playwright will raise an error with the path it tried.
         browser = await p.chromium.launch(
+            channel="chrome",   # real Chrome — not Playwright's Chromium
             headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
+                # --no-sandbox removed: it's an automation signal Cloudflare detects
                 f"--window-size=1280,800",
             ],
         )
@@ -63,7 +76,7 @@ async def main():
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/130.0.0.0 Safari/537.36"
+                "Chrome/136.0.0.0 Safari/537.36"
             ),
         )
 

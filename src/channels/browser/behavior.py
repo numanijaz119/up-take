@@ -82,17 +82,22 @@ class HumanBehaviorEngine:
         await asyncio.sleep(random.gauss(1.5, 0.6))
 
     async def browse_distraction(self, page: Page) -> None:
-        """Visit a non-job page — profile, messages, stats."""
+        """
+        Visit a non-job page to break up the job-feed browsing pattern.
+        All URLs verified against real Upwork session.
+        Failures are silently swallowed — distraction visits are non-critical.
+        """
         distractions = [
-            "https://www.upwork.com/freelancers/settings/",
-            "https://www.upwork.com/ab/messages/rooms",
-            "https://www.upwork.com/nx/wm/my-stats",
+            "https://www.upwork.com/freelancers/settings/profile",  # profile settings
+            "https://www.upwork.com/ab/messages/rooms",              # messages inbox
+            "https://www.upwork.com/nx/reports/overview/",           # financial overview
+            "https://www.upwork.com/nx/reports/freelancer/",         # my reports
         ]
         try:
             await page.goto(random.choice(distractions), wait_until="domcontentloaded", timeout=15000)
             await self.human_pause(5, 20)
         except Exception:
-            pass  # Distraction visits are non-critical
+            pass  # Distraction visits are non-critical — URL changes won't break anything
 
     async def random_mouse_wander(self, page: Page, movements: int = 3) -> None:
         """Idle mouse movement — like someone resting hand on mouse."""

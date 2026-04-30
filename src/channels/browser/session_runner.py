@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Callable, Awaitable, TYPE_CHECKING
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 
-from rebrowser_playwright.async_api import async_playwright
+from patchright.async_api import async_playwright
 
 from src.channels.browser.factory import BrowserFactory
 from src.channels.browser.behavior import HumanBehaviorEngine
@@ -175,7 +175,7 @@ class BrowserSessionRunner:
         try:
             async with async_playwright() as p:
                 logger.debug("Launching browser…")
-                browser, context, page = await self.factory.create_session(
+                context, page = await self.factory.create_session(
                     p, storage_state=storage_state
                 )
 
@@ -219,9 +219,10 @@ class BrowserSessionRunner:
                             "Add search URLs at /channels or via PUT /api/v1/search-configs."
                         )
                     else:
+                        available = len(self.search_configs)
                         num_searches = random.randint(
-                            settings.searches_per_session_min,
-                            min(settings.searches_per_session_max, len(self.search_configs)),
+                            min(settings.searches_per_session_min, available),
+                            min(settings.searches_per_session_max, available),
                         )
                         chosen_configs = random.sample(
                             self.search_configs,
@@ -451,9 +452,9 @@ class BrowserSessionRunner:
                 finally:
                     logger.debug("Closing browser…")
                     try:
-                        await browser.close()
+                        await context.close()
                     except Exception as e:
-                        logger.warning(f"Browser close raised: {e}")
+                        logger.warning(f"Context close raised: {e}")
 
         except Exception as e:
             error_msg = str(e)

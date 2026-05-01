@@ -59,10 +59,11 @@ async def lifespan(app: FastAPI):
 
     # Build channel registry and register all available channels
     from src.channels.registry import ChannelRegistry
-    from src.channels.browser.channel import BrowserChannel
+    from src.channels.extension import ExtensionChannel
+    from src.channels.extension.watchdog import schedule_watchdog
     from src.models.channel import ChannelConfig
-    from src.models.search_config import SearchConfig
     from sqlalchemy import select
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     async def _on_job(job_data: dict):
         await gateway.process(job_data)
@@ -86,7 +87,7 @@ async def lifespan(app: FastAPI):
     app_state.set_notifier(notifier)
 
     registry = ChannelRegistry(on_job_detected=_on_job)
-    registry.register(BrowserChannel)
+    registry.register(ExtensionChannel)
     app_state.set_registry(registry)
 
     # Auto-enable channels that were enabled at last shutdown
@@ -96,18 +97,16 @@ async def lifespan(app: FastAPI):
         )
         for ch_cfg in result.scalars().all():
             extra: dict = {}
-            if ch_cfg.channel_id == "browser_channel":
-                sc_result = await db.execute(
-                    select(SearchConfig).where(SearchConfig.is_active == True)
-                )
-                configs = sc_result.scalars().all()
-                extra["search_configs"] = [
-                    {"name": c.name, "url": c.url} for c in configs
-                ]
-                extra["on_session_complete"] = _on_session_complete
+            if ch_cfg.channel_id == "extension_channel":
                 extra["notifier"] = notifier
             await registry.enable(ch_cfg.channel_id, extra or None)
             logger.info(f"Auto-enabled channel: {ch_cfg.channel_id}")
+
+    # Start the extension watchdog
+    scheduler = AsyncIOScheduler()
+    scheduler.start()
+    schedule_watchdog(scheduler)
+    app.state.scheduler = scheduler
 
     logger.info("Up-take ready. Visit http://localhost:8000 for the dashboard.")
     yield
@@ -117,6 +116,8 @@ async def lifespan(app: FastAPI):
     registry_inst = app_state.get_registry()
     if registry_inst:
         await registry_inst.stop_all()
+    if hasattr(app.state, "scheduler") and app.state.scheduler.running:
+        app.state.scheduler.shutdown(wait=False)
     await close_redis()
     logger.info("Shutdown complete.")
 
@@ -131,8 +132,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -144,10 +145,12 @@ from src.api.channels import router as channels_router
 from src.api.search_configs import router as search_configs_router
 from src.api.analytics import router as analytics_router
 from src.api.settings_api import router as settings_router
+from src.channels.extension.ingest_api import router as extension_router
 
 for r in (
     profile_router, jobs_router, proposals_router, channels_router,
     search_configs_router, analytics_router, settings_router,
+    extension_router,
 ):
     app.include_router(r)
 

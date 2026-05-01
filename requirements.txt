@@ -1,7 +1,6 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
-pydantic-settings==2.5.2
 
 # Database
 asyncpg==0.29.0
@@ -11,17 +10,6 @@ alembic==1.13.3
 # Redis
 redis[hiredis]==5.1.1
 
-# Browser automation
-playwright==1.48.0
-# Patchright — drop-in replacement for Playwright with source-level CDP and
-# fingerprint patches. Supersedes rebrowser-playwright (which became outdated
-# vs. Cloudflare's 2026 detection script). Used by factory.py and session_runner.py.
-patchright==1.59.1
-fake-useragent==1.5.1
-# Reads cookies from your installed Chrome — used by cookie_import.py to
-# bypass Cloudflare on the login page (see src/channels/browser/cookie_import.py)
-browser-cookie3==0.20.1
-
 # LLM
 anthropic==0.34.2
 
@@ -29,7 +17,7 @@ anthropic==0.34.2
 python-telegram-bot==21.6
 
 # Utils
-python-dotenv==1.0.1
+python-decouple==3.8
 httpx==0.27.2
 aiofiles==24.1.0
 apscheduler==3.10.4

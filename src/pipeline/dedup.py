@@ -1,6 +1,7 @@
 import json
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timezone, timedelta
 from typing import Callable, Awaitable
 
 import redis.asyncio as aioredis
@@ -57,33 +58,31 @@ class DeduplicationGateway:
                 upwork_job_id=job_id,
                 source=source,
                 is_new=is_new,
-                detected_at=datetime.utcnow(),
+                detected_at=datetime.now(timezone.utc),
             )
             session.add(detection)
 
             if is_new:
-                # Mark as seen in Redis (expire after 7 days)
-                await self.redis.set(cache_key, "1", ex=604800)
-
                 # Store job
                 job = Job(
                     upwork_id=job_id,
                     title=job_data.get("title"),
                     description=job_data.get("description"),
                     budget=_parse_budget_field(job_data.get("budget")),
-                    job_type=job_data.get("jobType"),
-                    experience_level=job_data.get("experienceLevel"),
+                    job_type=job_data.get("job_type") or job_data.get("jobType"),
+                    experience_level=job_data.get("experience_level") or job_data.get("experienceLevel"),
                     duration=job_data.get("duration"),
                     skills=job_data.get("skills", []),
                     client_info={
-                        "paymentVerified": job_data.get("paymentVerified"),
-                        "clientSpent": job_data.get("clientSpent"),
-                        "clientRating": job_data.get("clientRating"),
-                        "clientLocation": job_data.get("clientLocation"),
+                        "paymentVerified": job_data.get("payment_verified") or job_data.get("paymentVerified"),
+                        "clientSpent": job_data.get("client_spent") or job_data.get("clientSpent"),
+                        "clientRating": job_data.get("client_rating") or job_data.get("clientRating"),
+                        "clientLocation": job_data.get("client_location") or job_data.get("clientLocation"),
                     },
                     proposals_count=job_data.get("proposals"),
                     url=job_data.get("url"),
-                    posted_at=job_data.get("postedTime"),
+                    posted_at=_parse_posted_time(job_data.get("posted_time") or job_data.get("postedTime")),
+                    detected_at=datetime.now(timezone.utc),
                     detected_via=source,
                     raw_data=job_data,
                     status="new",
@@ -99,6 +98,8 @@ class DeduplicationGateway:
                 session.add(audit)
 
                 await session.commit()
+                # Mark seen in Redis only after successful DB commit
+                await self.redis.set(cache_key, "1", ex=604800)
                 await session.refresh(job)
 
                 logger.info(f"New job detected: {job_id} via {source} — '{job_data.get('title', '?')}'")
@@ -134,9 +135,10 @@ class DeduplicationGateway:
             updates: dict = {}
             if job_data.get("description") and not job.description:
                 updates["description"] = job_data["description"]
-            if job_data.get("clientSpent") and not (job.client_info or {}).get("clientSpent"):
+            client_spent = job_data.get("client_spent") or job_data.get("clientSpent")
+            if client_spent and not (job.client_info or {}).get("clientSpent"):
                 client_info = dict(job.client_info or {})
-                client_info["clientSpent"] = job_data["clientSpent"]
+                client_info["clientSpent"] = client_spent
                 updates["client_info"] = client_info
 
             if updates:
@@ -144,6 +146,36 @@ class DeduplicationGateway:
                     update(Job).where(Job.upwork_id == job_id).values(**updates)
                 )
                 logger.debug(f"Enriched job {job_id} from {source}")
+
+
+def _parse_posted_time(relative: str | None) -> str | None:
+    """
+    Convert Upwork relative string ('12 minutes ago', 'about 1 hour ago')
+    to an ISO 8601 UTC datetime string with +00:00 suffix.
+    Returns None for unrecognised formats so callers get null, not garbage.
+    """
+    if not relative:
+        return None
+    s = relative.strip().lower()
+    now = datetime.now(timezone.utc)
+
+    # re.search handles prefixes like "about", "Posted", etc.
+    m = re.search(r'(\d+)\s+(second|minute|hour|day|week)s?\s+ago', s)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        delta = {
+            'second': timedelta(seconds=n),
+            'minute': timedelta(minutes=n),
+            'hour':   timedelta(hours=n),
+            'day':    timedelta(days=n),
+            'week':   timedelta(weeks=n),
+        }[unit]
+        return (now - delta).isoformat()
+
+    if any(x in s for x in ('just now', 'moment', 'recently')):
+        return now.isoformat()
+
+    return None  # unrecognised — let caller show '—'
 
 
 def _parse_budget_field(budget_raw) -> dict | None:

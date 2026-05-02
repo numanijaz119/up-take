@@ -1,30 +1,40 @@
 <!doctype html>
 <html><head>
   <meta charset="utf-8">
-  <title>Up-take Extension Settings</title>
+  <title>Up-take — Settings</title>
   <link rel="stylesheet" href="options.css">
 </head><body>
   <h1>Up-take Extension</h1>
 
   <section>
-    <h2>Backend</h2>
-    <label>Backend URL <input id="backendUrl" type="url" placeholder="http://localhost:8000"></label>
-    <label>API Token <input id="apiToken" type="password" placeholder="paste EXTENSION_API_TOKEN"></label>
-    <button id="save">Save</button>
-    <button id="test">Test Connection</button>
-    <p id="status"></p>
+    <p>
+      All settings are managed from the <strong>toolbar popup</strong>.
+      Click the Up-take icon in Chrome's toolbar to open it.
+    </p>
+    <p style="margin-top:8px;color:#888;font-size:.85rem">
+      If the icon is hidden, click the puzzle-piece icon → pin <em>Up-take</em>.
+    </p>
   </section>
 
   <section>
-    <h2>Current Config (read-only — change in backend)</h2>
-    <pre id="configDump">Loading…</pre>
+    <h2>Diagnostics</h2>
+    <p>Extension settings stored in <code>chrome.storage.local</code>:</p>
+    <pre id="dump">Loading…</pre>
   </section>
 
-  <section>
-    <h2>Status</h2>
-    <p>Managed tab: <span id="managedTab">none</span></p>
-    <p>Last reload: <span id="lastReload">never</span></p>
-  </section>
-
-  <script src="options.js"></script>
+  <script>
+    chrome.storage.local.get(null, (data) => {
+      const safe = JSON.parse(JSON.stringify(data));
+      if (safe.apiToken) safe.apiToken = "***";
+      document.getElementById("dump").textContent = JSON.stringify(safe, null, 2);
+    });
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local") return;
+      chrome.storage.local.get(null, (data) => {
+        const safe = JSON.parse(JSON.stringify(data));
+        if (safe.apiToken) safe.apiToken = "***";
+        document.getElementById("dump").textContent = JSON.stringify(safe, null, 2);
+      });
+    });
+  </script>
 </body></html>

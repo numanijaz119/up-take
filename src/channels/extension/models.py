@@ -26,13 +26,15 @@ class ExtractedJob(BaseModel):
 class JobIngestRequest(BaseModel):
     jobs: list[ExtractedJob]
     tab_url: str
+    tab_id: Optional[int] = None
     extension_version: str
 
 
 class JobIngestResponse(BaseModel):
-    received: int
-    new: int
-    duplicates: int
+    received: int   # total jobs received from extension
+    new: int        # jobs that actually entered the pipeline (fresh + not in DB)
+    duplicates: int # already in DB at ingest time
+    stale: int = 0  # filtered by freshness gate before reaching the pipeline
 
 
 class HeartbeatRequest(BaseModel):
@@ -59,17 +61,3 @@ class ExtensionEvent(BaseModel):
     occurred_at: datetime
 
 
-class SearchConfigEntry(BaseModel):
-    label: str
-    url: str
-    weight: float = 1.0
-
-
-class ConfigResponse(BaseModel):
-    searches: list[SearchConfigEntry]
-    reload_min_seconds: int
-    reload_max_seconds: int
-    quiet_hours_start: int
-    quiet_hours_end: int
-    heartbeat_interval_seconds: int
-    config_refetch_interval_seconds: int

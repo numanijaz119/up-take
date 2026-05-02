@@ -74,8 +74,10 @@ export function extractVisibleJobs(doc) {
         if (!jobId) return;
 
         // ── Title + URL ─────────────────────────────────────────────────────────
-        const titleLink = tile.querySelector('h3.job-tile-title a')
-            || tile.querySelector('[data-test="job-tile-title-link"]');
+        // .job-tile-title covers both h2 (search page) and h3 (find-work page).
+        // ~= matches a token in a space-separated data-test value ("job-tile-title-link UpLink").
+        const titleLink = tile.querySelector('.job-tile-title a')
+            || tile.querySelector('[data-test~="job-tile-title-link"]');
         if (!titleLink) return;
 
         const job_url = cleanUrl(titleLink.getAttribute('href'));

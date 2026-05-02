@@ -1,5 +1,5 @@
+import asyncio
 import logging
-from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -18,33 +18,34 @@ logger = logging.getLogger(__name__)
 
 class PipelineOrchestrator:
     """
-    Orchestrates the full pipeline:
+    Orchestrates the full pipeline per job:
     job_data → quick filter → deep analysis → proposal generation
+
+    The quick filter is free (rule-based, <1 ms). The LLM stages (analysis +
+    generation) are gated by a shared semaphore so at most
+    PIPELINE_MAX_CONCURRENT_LLM calls run simultaneously across all concurrent
+    jobs — preventing Anthropic rate-limit hits and controlling spend.
     """
 
-    def __init__(
-        self,
-        db_session_factory,
-        on_proposal_ready=None,
-    ):
+    def __init__(self, db_session_factory, on_proposal_ready=None):
         self.db = db_session_factory
         self._on_proposal_ready = on_proposal_ready
-        self._analyzer = DeepAnalyzer()
+        self._analyzer  = DeepAnalyzer()
         self._generator = ProposalGenerator()
+        # Shared across all concurrent process() calls on this instance.
+        self._llm_semaphore = asyncio.Semaphore(settings.pipeline_max_concurrent_llm)
 
     async def process(self, job_data: dict, session: AsyncSession | None = None) -> None:
         """Entry point called by the dedup gateway for each new job."""
         job_id = job_data.get("id")
 
         async with self.db() as db:
-            # Load the job from DB
             result = await db.execute(select(Job).where(Job.upwork_id == job_id))
             job = result.scalar_one_or_none()
             if not job:
                 logger.warning(f"Job {job_id} not found in DB during pipeline")
                 return
 
-            # Load active profile
             profile = await self._load_active_profile(db)
             if not profile:
                 logger.warning("No active freelancer profile — skipping pipeline")
@@ -52,8 +53,8 @@ class PipelineOrchestrator:
 
             profile_dict = self._profile_to_dict(profile)
 
-            # ── Step 1: Quick Filter ─────────────────────────────────────────
-            prefs = self._build_filter_prefs(profile)
+            # ── Step 1: Quick Filter (free — no API calls) ────────────────────
+            prefs        = self._build_filter_prefs(profile)
             quick_filter = QuickFilter(prefs)
             passes, reason = quick_filter.evaluate(job_data)
 
@@ -64,15 +65,17 @@ class PipelineOrchestrator:
                 logger.info(f"Job {job_id} filtered out: {reason}")
                 return
 
-            # ── Step 2: Deep Analysis ────────────────────────────────────────
+            # ── Step 2: Deep Analysis (LLM — semaphore-gated) ─────────────────
             await self._update_job_status(db, job.id, "analyzing")
             await db.commit()
 
             try:
-                analysis_result = await self._analyzer.analyze(job_data, profile_dict)
+                async with self._llm_semaphore:
+                    analysis_result = await self._analyzer.analyze(job_data, profile_dict)
             except Exception as e:
                 logger.error(f"Analysis failed for {job_id}: {e}")
                 await self._update_job_status(db, job.id, "new")
+                await db.commit()
                 return
 
             analysis = JobAnalysis(
@@ -101,15 +104,22 @@ class PipelineOrchestrator:
             if not analysis_result.get("should_propose"):
                 await self._update_job_status(db, job.id, "skipped")
                 await db.commit()
-                logger.info(f"Job {job_id} skipped (score={analysis_result.get('opportunity_score')}): {analysis_result.get('reasoning')}")
+                logger.info(
+                    f"Job {job_id} skipped "
+                    f"(score={analysis_result.get('opportunity_score')}): "
+                    f"{analysis_result.get('reasoning')}"
+                )
                 return
 
             await db.commit()
             await db.refresh(analysis)
 
-            # ── Step 3: Proposal Generation ──────────────────────────────────
+            # ── Step 3: Proposal Generation (LLM — semaphore-gated) ───────────
             try:
-                proposal_result = await self._generator.generate(job_data, analysis_result, profile_dict)
+                async with self._llm_semaphore:
+                    proposal_result = await self._generator.generate(
+                        job_data, analysis_result, profile_dict
+                    )
             except Exception as e:
                 logger.error(f"Proposal generation failed for {job_id}: {e}")
                 await self._update_job_status(db, job.id, "analyzed")
@@ -130,30 +140,30 @@ class PipelineOrchestrator:
             await self._update_job_status(db, job.id, "proposed")
             await self._log(db, "proposal_generated", "proposal", str(job.id), {
                 "quality": proposal_result["quality_score"],
-                "words": proposal_result["word_count"],
+                "words":   proposal_result["word_count"],
             })
             await db.commit()
             await db.refresh(proposal)
 
             logger.info(
-                f"Proposal ready for {job_id}: quality={proposal_result['quality_score']:.1f}, "
+                f"Proposal ready for {job_id}: "
+                f"quality={proposal_result['quality_score']:.1f}, "
                 f"words={proposal_result['word_count']}"
             )
 
-            # Notify
             if self._on_proposal_ready:
                 try:
                     await self._on_proposal_ready({
-                        "job": job_data,
-                        "analysis": analysis_result,
-                        "proposal": proposal_result,
+                        "job":        job_data,
+                        "analysis":   analysis_result,
+                        "proposal":   proposal_result,
                         "proposal_id": str(proposal.id),
-                        "job_db_id": str(job.id),
+                        "job_db_id":  str(job.id),
                     })
                 except Exception as e:
                     logger.error(f"Notification callback error: {e}")
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     async def _load_active_profile(self, db: AsyncSession) -> FreelancerProfile | None:
         result = await db.execute(
@@ -163,16 +173,16 @@ class PipelineOrchestrator:
 
     def _profile_to_dict(self, profile: FreelancerProfile) -> dict:
         return {
-            "id": str(profile.id),
-            "name": profile.name,
-            "skills": profile.skills or [],
+            "id":                 str(profile.id),
+            "name":               profile.name,
+            "skills":             profile.skills or [],
             "experience_summary": profile.experience_summary or "",
-            "tone_description": profile.tone_description or "Professional, concise, confident.",
-            "sample_proposals": profile.sample_proposals or [],
-            "rate_min": float(profile.rate_min) if profile.rate_min else None,
-            "rate_max": float(profile.rate_max) if profile.rate_max else None,
+            "tone_description":   profile.tone_description or "Professional, concise, confident.",
+            "sample_proposals":   profile.sample_proposals or [],
+            "rate_min":           float(profile.rate_min) if profile.rate_min else None,
+            "rate_max":           float(profile.rate_max) if profile.rate_max else None,
             "max_proposal_words": profile.max_proposal_words,
-            "preferences": profile.preferences or {},
+            "preferences":        profile.preferences or {},
         }
 
     def _build_filter_prefs(self, profile: FreelancerProfile) -> FilterPreferences:

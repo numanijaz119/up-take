@@ -65,8 +65,8 @@ async def lifespan(app: FastAPI):
     from sqlalchemy import select
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-    async def _on_job(job_data: dict):
-        await gateway.process(job_data)
+    async def _on_job(job_data: dict) -> bool:
+        return await gateway.process(job_data)
 
     async def _on_session_complete(session_data: dict):
         """Persist browser session stats to the database."""
@@ -142,15 +142,13 @@ from src.api.profile import router as profile_router
 from src.api.jobs import router as jobs_router
 from src.api.proposals import router as proposals_router
 from src.api.channels import router as channels_router
-from src.api.search_configs import router as search_configs_router
 from src.api.analytics import router as analytics_router
 from src.api.settings_api import router as settings_router
 from src.channels.extension.ingest_api import router as extension_router
 
 for r in (
     profile_router, jobs_router, proposals_router, channels_router,
-    search_configs_router, analytics_router, settings_router,
-    extension_router,
+    analytics_router, settings_router, extension_router,
 ):
     app.include_router(r)
 

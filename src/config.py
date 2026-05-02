@@ -70,26 +70,8 @@ class Settings:
         self.extension_api_token: str = config(
             "EXTENSION_API_TOKEN", default="change-me-in-env"
         )
-        self.extension_reload_min_seconds: int = config(
-            "EXTENSION_RELOAD_MIN_SECONDS", default=360, cast=int
-        )
-        self.extension_reload_max_seconds: int = config(
-            "EXTENSION_RELOAD_MAX_SECONDS", default=840, cast=int
-        )
-        self.extension_heartbeat_interval_seconds: int = config(
-            "EXTENSION_HEARTBEAT_INTERVAL_SECONDS", default=60, cast=int
-        )
         self.extension_heartbeat_timeout_seconds: int = config(
             "EXTENSION_HEARTBEAT_TIMEOUT_SECONDS", default=300, cast=int
-        )
-        self.extension_config_refetch_seconds: int = config(
-            "EXTENSION_CONFIG_REFETCH_SECONDS", default=300, cast=int
-        )
-        self.extension_quiet_hours_start: int = config(
-            "EXTENSION_QUIET_HOURS_START", default=1, cast=int
-        )
-        self.extension_quiet_hours_end: int = config(
-            "EXTENSION_QUIET_HOURS_END", default=7, cast=int
         )
         self.extension_peak_hours_tz: str = config(
             "EXTENSION_PEAK_HOURS_TZ", default="America/New_York"
@@ -102,6 +84,16 @@ class Settings:
         )
         self.extension_no_jobs_alert_minutes: int = config(
             "EXTENSION_NO_JOBS_ALERT_MINUTES", default=30, cast=int
+        )
+
+        # ── Pipeline ──────────────────────────────────────────────────────────
+        # Jobs older than this are silently dropped before entering the pipeline.
+        self.max_job_age_hours: int = config(
+            "MAX_JOB_AGE_HOURS", default=2, cast=int
+        )
+        # Hard cap on simultaneous LLM calls (analysis + generation combined).
+        self.pipeline_max_concurrent_llm: int = config(
+            "PIPELINE_MAX_CONCURRENT_LLM", default=3, cast=int
         )
 
 

@@ -39,6 +39,7 @@ class DetectionChannel(ABC):
     def is_running(self) -> bool:
         return self._running
 
-    async def _emit(self, job: dict) -> None:
-        """Send a discovered job to the gateway."""
-        await self._on_job(job)
+    async def _emit(self, job: dict) -> bool:
+        """Send a discovered job to the gateway. Returns True if it was a new job."""
+        result = await self._on_job(job)
+        return bool(result)

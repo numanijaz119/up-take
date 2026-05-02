@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Up-take</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+<!-- ── Header ───────────────────────────────────────────────────── -->
+<header>
+    <div class="brand">
+        <img src="icons/icon48.png" class="logo" alt="">
+        <div>
+            <div class="brand-name">Up-take <span class="version" id="version"></span></div>
+            <div class="brand-sub" id="headerSub">Loading…</div>
+        </div>
+    </div>
+    <button id="toggleBtn" class="toggle-btn off">
+        <span class="toggle-icon">⏵</span>
+        <span class="toggle-label">Start</span>
+    </button>
+</header>
+
+<!-- ── Tab bar ──────────────────────────────────────────────────── -->
+<nav class="tabs">
+    <button class="tab active" data-tab="interval">Time Interval</button>
+    <button class="tab" data-tab="urls">URLs</button>
+    <button class="tab" data-tab="status">Status</button>
+</nav>
+
+<!-- ── Tab: Time Interval ───────────────────────────────────────── -->
+<div class="tab-panel active" id="tab-interval">
+    <h2>Time Interval <span id="tabIndicator" class="tab-indicator"></span></h2>
+    <p id="notEligibleHint" class="hint not-eligible hidden">
+        This tab is not a monitored URL — settings here will apply once you open a configured Upwork tab.
+    </p>
+
+    <!-- Fixed interval -->
+    <div class="iv-row">
+        <label class="preset">
+            <input type="radio" name="iv" value="fixed">
+            <span>Fixed interval</span>
+        </label>
+        <div id="fixedRow" class="iv-inputs">
+            <input type="number" id="ivSec" min="1" value="600" class="sec-input"> seconds
+        </div>
+    </div>
+
+    <!-- Random interval -->
+    <div class="iv-row">
+        <label class="preset">
+            <input type="radio" name="iv" value="random" checked>
+            <span>Random interval</span>
+        </label>
+        <div id="randomRow" class="iv-inputs visible">
+            Min <input type="number" id="rMin" min="1" value="360" class="rand-input"> s
+            &nbsp;&nbsp;Max <input type="number" id="rMax" min="1" value="840" class="rand-input"> s
+        </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <label class="opt-row">
+        <input type="checkbox" id="quietEnabled">
+        <span>
+            Skip during quiet hours
+            <small>
+                From
+                <input type="number" id="quietStart" min="0" max="23" value="1" class="quiet-input">h
+                to
+                <input type="number" id="quietEnd" min="0" max="23" value="7" class="quiet-input">h
+            </small>
+        </span>
+    </label>
+
+    <div class="divider"></div>
+
+    <label class="opt-row">
+        <input type="checkbox" id="autoOpen">
+        <span>
+            Auto-open monitored URLs
+            <small>Opens configured URLs as new tabs when extension starts</small>
+        </span>
+    </label>
+</div>
+
+<!-- ── Tab: URLs ────────────────────────────────────────────────── -->
+<div class="tab-panel" id="tab-urls">
+    <div class="urls-header">
+        <h2>Monitored URLs</h2>
+        <button id="addUrlBtn" class="add-btn">+ Add</button>
+    </div>
+    <p class="hint">Any tab matching these URLs can be independently started. Each tab runs its own timer.</p>
+    <ul id="urlList" class="url-list"></ul>
+
+    <div id="addUrlForm" class="add-url-form hidden">
+        <input type="url" id="newUrlInput" placeholder="https://www.upwork.com/nx/find-work/best-matches">
+        <div class="url-form-actions">
+            <button id="cancelUrlBtn" class="ghost-btn">Cancel</button>
+            <button id="confirmUrlBtn" class="confirm-btn">Add</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Tab: Status ───────────────────────────────────────────────── -->
+<div class="tab-panel" id="tab-status">
+    <div class="status-row">
+        <span class="status-label">Backend</span>
+        <span id="backendBadge" class="badge unknown">Checking…</span>
+        <span id="backendUrl" class="status-url"></span>
+    </div>
+
+    <h2 style="margin-top:12px">Active tabs</h2>
+    <ul id="activeTabsList" class="active-tabs"></ul>
+    <p id="noTabsMsg" class="hint">No tabs are being monitored.</p>
+
+    <div class="divider"></div>
+    <h2>Backend Connection</h2>
+    <label class="field-label">
+        Backend URL
+        <input type="url" id="backendUrlInput" placeholder="http://localhost:8000" class="full-input">
+    </label>
+    <label class="field-label">
+        API Token
+        <input type="password" id="apiTokenInput" placeholder="EXTENSION_API_TOKEN" class="full-input">
+    </label>
+    <div class="btn-row">
+        <button id="saveBackendBtn" class="confirm-btn">Save</button>
+        <button id="testBackendBtn" class="ghost-btn">Test</button>
+    </div>
+    <p id="backendTestMsg" class="hint"></p>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

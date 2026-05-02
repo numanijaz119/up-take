@@ -1,23 +1,24 @@
-"""FastAPI router for the extension's four endpoints.
+"""FastAPI router for the extension's three endpoints.
 Mounted at /api/v1/extension/* in src/main.py."""
+import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.config import settings
-from src.database import get_db
+from src.database import AsyncSessionLocal
 import src.app_state as app_state
 from src.channels.extension.models import (
     JobIngestRequest, JobIngestResponse,
     HeartbeatRequest, HeartbeatResponse,
-    ExtensionEvent, ConfigResponse, SearchConfigEntry,
+    ExtensionEvent,
 )
 from src.channels.extension import state as ext_state
-from src.models.search_config import SearchConfig as SearchConfigModel
+from src.models.job import Job
+from src.pipeline.dedup import parse_posted_time
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/extension", tags=["extension"])
@@ -35,6 +36,31 @@ def require_extension_token(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid extension token")
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _is_fresh(job) -> bool:
+    """Return False if the job's posted_time is older than MAX_JOB_AGE_HOURS."""
+    posted_at_str = parse_posted_time(job.posted_time)
+    if not posted_at_str:
+        return True  # unknown age — let it through
+    try:
+        posted_dt = datetime.fromisoformat(posted_at_str)
+        if posted_dt.tzinfo is None:
+            posted_dt = posted_dt.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - posted_dt <= timedelta(hours=settings.max_job_age_hours)
+    except Exception:
+        return True
+
+
+async def _emit_one(channel, job_data: dict) -> bool:
+    """Emit one job. Returns True only if the dedup gateway confirmed it as new."""
+    try:
+        return bool(await channel._emit(job_data))
+    except Exception as e:
+        logger.error(f"Failed to emit job {job_data.get('id')}: {e}")
+        return False
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/jobs", response_model=JobIngestResponse,
@@ -44,25 +70,67 @@ async def ingest_jobs(payload: JobIngestRequest):
     if not channel or not channel.is_running:
         raise HTTPException(503, "extension_channel not enabled")
 
-    new_count = 0
-    for job in payload.jobs:
-        try:
-            await channel._emit(job.model_dump(mode="json"))
-            new_count += 1
-        except Exception as e:
-            logger.error(f"Failed to emit extension job {job.id}: {e}")
+    if not payload.jobs:
+        return JobIngestResponse(received=0, new=0, duplicates=0, stale=0)
 
-    if payload.jobs:
+    # ── Step 1: Freshness pre-filter ──────────────────────────────────────────
+    # Reject jobs older than MAX_JOB_AGE_HOURS before any DB work.
+    fresh_jobs = [j for j in payload.jobs if _is_fresh(j)]
+    stale_count = len(payload.jobs) - len(fresh_jobs)
+
+    if not fresh_jobs:
+        logger.info(
+            f"Extension batch: received={len(payload.jobs)} all stale "
+            f"(>{settings.max_job_age_hours}h old) from {payload.tab_url}"
+        )
+        return JobIngestResponse(
+            received=len(payload.jobs), new=0, duplicates=0, stale=stale_count
+        )
+
+    # ── Step 2: Bulk DB dedup ─────────────────────────────────────────────────
+    # One query to find which fresh job IDs are already in the database.
+    incoming_ids = [j.id for j in fresh_jobs]
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Job.upwork_id).where(Job.upwork_id.in_(incoming_ids))
+        )
+        known_ids = {row[0] for row in result}
+
+    new_jobs = [j for j in fresh_jobs if j.id not in known_ids]
+    duplicate_count = len(fresh_jobs) - len(new_jobs)
+
+    if not new_jobs:
+        logger.info(
+            f"Extension batch: received={len(payload.jobs)} "
+            f"stale={stale_count} duplicates={duplicate_count} new=0 "
+            f"from {payload.tab_url}"
+        )
+        return JobIngestResponse(
+            received=len(payload.jobs), new=0,
+            duplicates=duplicate_count, stale=stale_count
+        )
+
+    # ── Step 3: Emit each new job concurrently ────────────────────────────────
+    # Each job triggers its own independent pipeline run.
+    # _emit_one returns True only when the dedup gateway confirms it's new.
+    results = await asyncio.gather(
+        *[_emit_one(channel, j.model_dump(mode="json")) for j in new_jobs],
+    )
+    new_count = sum(results)
+
+    if new_count:
         await ext_state.record_last_job_at(datetime.now(timezone.utc))
 
     logger.info(
-        f"Extension batch: received={len(payload.jobs)} from {payload.tab_url} "
-        f"(ext v{payload.extension_version})"
+        f"Extension batch: received={len(payload.jobs)} "
+        f"stale={stale_count} duplicates={duplicate_count} new={new_count} "
+        f"from {payload.tab_url} (ext v{payload.extension_version})"
     )
     return JobIngestResponse(
         received=len(payload.jobs),
         new=new_count,
-        duplicates=0,
+        duplicates=duplicate_count,
+        stale=stale_count,
     )
 
 
@@ -123,30 +191,3 @@ async def report_event(payload: ExtensionEvent):
                 logger.error(f"Telegram selector alert failed: {e}")
 
     return {"ok": True}
-
-
-@router.get("/config", response_model=ConfigResponse,
-            dependencies=[Depends(require_extension_token)])
-async def get_config(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(SearchConfigModel).where(SearchConfigModel.is_active == True)
-    )
-    rows = result.scalars().all()
-    searches = [
-        SearchConfigEntry(label=r.name, url=r.url)
-        for r in rows
-    ] or [
-        SearchConfigEntry(
-            label="Best Matches",
-            url="https://www.upwork.com/nx/find-work/best-matches",
-        ),
-    ]
-    return ConfigResponse(
-        searches=searches,
-        reload_min_seconds=settings.extension_reload_min_seconds,
-        reload_max_seconds=settings.extension_reload_max_seconds,
-        quiet_hours_start=settings.extension_quiet_hours_start,
-        quiet_hours_end=settings.extension_quiet_hours_end,
-        heartbeat_interval_seconds=settings.extension_heartbeat_interval_seconds,
-        config_refetch_interval_seconds=settings.extension_config_refetch_seconds,
-    )

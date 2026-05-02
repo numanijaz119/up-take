@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -7,7 +6,6 @@ from sqlalchemy import select
 
 from src.database import get_db
 from src.models.channel import ChannelConfig
-from src.models.search_config import SearchConfig
 
 router = APIRouter(prefix="/api/v1/channels", tags=["Channels"])
 
@@ -65,17 +63,8 @@ async def toggle_channel(
 
     if body.enabled:
         extra: dict = {}
-        if channel_id == "browser_channel":
-            sc_result = await db.execute(
-                select(SearchConfig).where(SearchConfig.is_active == True)
-            )
-            configs = sc_result.scalars().all()
-            extra["search_configs"] = [{"name": c.name, "url": c.url} for c in configs]
-            # Wire DB session persistence callback from app_state
-            from src.app_state import get_session_callback, get_notifier
-            cb = get_session_callback()
-            if cb:
-                extra["on_session_complete"] = cb
+        if channel_id == "extension_channel":
+            from src.app_state import get_notifier
             notifier = get_notifier()
             if notifier:
                 extra["notifier"] = notifier
@@ -126,8 +115,7 @@ async def trigger_session(channel_id: str):
             400, f"Channel '{channel_id}' is not running. Enable it first."
         )
 
-    if channel_id == "browser_channel":
-        asyncio.create_task(instance.trigger_manual_session())
-        return {"status": "triggered", "message": "Manual session started in background"}
+    if channel_id == "extension_channel":
+        raise HTTPException(400, "Extension channel is passive — trigger is not supported. Open a new Upwork tab to force an extraction.")
 
     raise HTTPException(400, f"Manual trigger not supported for '{channel_id}'")

@@ -147,7 +147,7 @@
         <span class="text-xs px-1.5 py-0.5 rounded ${statusColor}">${j.status}</span>
       </td>
       <td class="px-4 py-3 text-gray-500 text-xs">${j.detected_via || '—'}</td>
-      <td class="px-4 py-3 text-gray-500 text-xs">${timeAgo(j.detected_at)}</td>
+      <td class="px-4 py-3 text-gray-500 text-xs" data-time="${j.detected_at || ''}">${timeAgo(j.detected_at)}</td>
       <td class="px-4 py-3">
         ${j.url ? `<a href="${j.url}" target="_blank" onclick="event.stopPropagation()"
           class="text-xs text-indigo-400 hover:text-indigo-300">↗</a>` : ''}
@@ -167,7 +167,15 @@
         <div><span class="text-gray-500">Duration:</span> ${j.duration || '—'}</div>
         <div><span class="text-gray-500">Experience:</span> ${j.experience_level || '—'}</div>
         <div><span class="text-gray-500">Proposals:</span> ${j.proposals_count || '—'}</div>
-        <div><span class="text-gray-500">Posted:</span> ${j.posted_at || '—'}</div>
+        <div class="col-span-2">
+          <span class="text-gray-500">Posted:</span>
+          ${j.posted_at_raw
+            ? `<span title="Original scraped value">${j.posted_at_raw}</span>
+               <span class="text-gray-600 mx-1">→</span>
+               <span class="text-gray-300" data-time="${j.posted_at || ''}">${timeAgo(j.posted_at)}</span>
+               <span class="text-gray-600 text-xs ml-1">(now)</span>`
+            : (j.posted_at ? `<span data-time="${j.posted_at}">${timeAgo(j.posted_at)}</span>` : '—')}
+        </div>
       </div>
       ${j.description ? `<div class="bg-gray-800 rounded-lg p-3 text-gray-300 text-xs leading-relaxed max-h-40 overflow-y-auto">${j.description}</div>` : ''}
       ${j.skills?.length ? `<div class="flex flex-wrap gap-1 mt-2">${j.skills.map(s => `<span class="bg-gray-800 text-gray-400 text-xs px-2 py-0.5 rounded">${s}</span>`).join('')}</div>` : ''}
@@ -197,13 +205,28 @@
 
   function timeAgo(iso) {
     if (!iso) return '—';
-    const diff = Date.now() - new Date(iso).getTime();
-    const m = Math.floor(diff / 60000);
-    if (m < 1) return 'just now';
-    if (m < 60) return `${m}m ago`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h ago`;
-    return `${Math.floor(h/24)}d ago`;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    const diff = Date.now() - d.getTime();
+    if (diff < 0) return 'just now';
+    const totalS = Math.floor(diff / 1000);
+    if (totalS < 60) return `${totalS}s ago`;
+    const totalM = Math.floor(totalS / 60);
+    if (totalM < 60) return `${totalM}m ago`;
+    const totalH = Math.floor(totalM / 60);
+    const remM   = totalM % 60;
+    if (totalH < 24) return remM > 0 ? `${totalH}h ${remM}m ago` : `${totalH}h ago`;
+    const totalD = Math.floor(totalH / 24);
+    const remH   = totalH % 24;
+    return remH > 0 ? `${totalD}d ${remH}h ago` : `${totalD}d ago`;
   }
+
+  // Refresh all [data-time] cells every 30 s without re-fetching data
+  setInterval(() => {
+    document.querySelectorAll('[data-time]').forEach(el => {
+      const t = el.dataset.time;
+      if (t) el.textContent = timeAgo(t);
+    });
+  }, 30000);
 </script>
 {% endblock %}

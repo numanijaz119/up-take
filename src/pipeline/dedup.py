@@ -1,6 +1,6 @@
-import json
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timezone, timedelta
 from typing import Callable, Awaitable
 
 import redis.asyncio as aioredis
@@ -9,20 +9,21 @@ from sqlalchemy import select, update
 
 from src.models.job import Job, Detection
 from src.models.audit import AuditLog
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
 SOURCE_PRIORITY = {
-    "api_polling": 3,
+    "api_polling":    3,
     "browser_channel": 2,
-    "email_alert": 1,
+    "email_alert":    1,
 }
 
 
 class DeduplicationGateway:
     """
     Central hub for all detection channels.
-    First detection triggers the pipeline;
+    First detection of a job ID triggers the pipeline;
     later detections from other channels only enrich the existing record.
     """
 
@@ -39,51 +40,68 @@ class DeduplicationGateway:
     async def process(self, job_data: dict) -> bool:
         """
         Process a detected job.
-        Returns True if this was a new job that triggered the pipeline.
+        Returns True if this was a new job that entered the pipeline.
         """
         job_id = job_data.get("id")
         if not job_id:
             logger.debug("Received job data without ID — skipping")
             return False
 
-        source = job_data.get("source", "unknown")
+        # ── Freshness gate ────────────────────────────────────────────────────
+        # Drop jobs older than MAX_JOB_AGE_HOURS before any DB/Redis work.
+        posted_at_str = parse_posted_time(
+            job_data.get("posted_time") or job_data.get("postedTime")
+        )
+        if posted_at_str:
+            try:
+                posted_dt = datetime.fromisoformat(posted_at_str)
+                if posted_dt.tzinfo is None:
+                    posted_dt = posted_dt.replace(tzinfo=timezone.utc)
+                age = datetime.now(timezone.utc) - posted_dt
+                if age > timedelta(hours=settings.max_job_age_hours):
+                    logger.info(
+                        f"Job {job_id} stale ({age.total_seconds()/3600:.1f}h old, "
+                        f"limit {settings.max_job_age_hours}h) — skipped"
+                    )
+                    return False
+            except Exception:
+                pass  # unparseable posted_at — let the job through
+
+        source    = job_data.get("source", "unknown")
         cache_key = f"job:seen:{job_id}"
 
         is_new = not bool(await self.redis.exists(cache_key))
 
         async with self.db() as session:
-            # Log every detection for channel analytics
+            now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
             detection = Detection(
                 upwork_job_id=job_id,
                 source=source,
                 is_new=is_new,
-                detected_at=datetime.utcnow(),
+                detected_at=now_naive,
             )
             session.add(detection)
 
             if is_new:
-                # Mark as seen in Redis (expire after 7 days)
-                await self.redis.set(cache_key, "1", ex=604800)
-
-                # Store job
                 job = Job(
                     upwork_id=job_id,
                     title=job_data.get("title"),
                     description=job_data.get("description"),
                     budget=_parse_budget_field(job_data.get("budget")),
-                    job_type=job_data.get("jobType"),
-                    experience_level=job_data.get("experienceLevel"),
+                    job_type=job_data.get("job_type") or job_data.get("jobType"),
+                    experience_level=job_data.get("experience_level") or job_data.get("experienceLevel"),
                     duration=job_data.get("duration"),
                     skills=job_data.get("skills", []),
                     client_info={
-                        "paymentVerified": job_data.get("paymentVerified"),
-                        "clientSpent": job_data.get("clientSpent"),
-                        "clientRating": job_data.get("clientRating"),
-                        "clientLocation": job_data.get("clientLocation"),
+                        "paymentVerified": job_data.get("payment_verified") or job_data.get("paymentVerified"),
+                        "clientSpent":     job_data.get("client_spent")     or job_data.get("clientSpent"),
+                        "clientRating":    job_data.get("client_rating")    or job_data.get("clientRating"),
+                        "clientLocation":  job_data.get("client_location")  or job_data.get("clientLocation"),
                     },
                     proposals_count=job_data.get("proposals"),
                     url=job_data.get("url"),
-                    posted_at=job_data.get("postedTime"),
+                    posted_at=posted_at_str,
+                    detected_at=now_naive,
                     detected_via=source,
                     raw_data=job_data,
                     status="new",
@@ -99,9 +117,13 @@ class DeduplicationGateway:
                 session.add(audit)
 
                 await session.commit()
+                # Claim job in Redis only after successful DB commit.
+                await self.redis.set(cache_key, "1", ex=604800)
                 await session.refresh(job)
 
-                logger.info(f"New job detected: {job_id} via {source} — '{job_data.get('title', '?')}'")
+                logger.info(
+                    f"New job: {job_id} via {source} — '{job_data.get('title', '?')}'"
+                )
 
                 try:
                     await self._on_new_job(job_data, session)
@@ -121,29 +143,60 @@ class DeduplicationGateway:
         """Enrich existing record if this source has better/more complete data."""
         new_priority = SOURCE_PRIORITY.get(source, 0)
 
-        result = await session.execute(
-            select(Job).where(Job.upwork_id == job_id)
-        )
+        result = await session.execute(select(Job).where(Job.upwork_id == job_id))
         job = result.scalar_one_or_none()
         if not job:
             return
 
         old_priority = SOURCE_PRIORITY.get(job.detected_via or "", 0)
+        if new_priority <= old_priority:
+            return
 
-        if new_priority > old_priority:
-            updates: dict = {}
-            if job_data.get("description") and not job.description:
-                updates["description"] = job_data["description"]
-            if job_data.get("clientSpent") and not (job.client_info or {}).get("clientSpent"):
-                client_info = dict(job.client_info or {})
-                client_info["clientSpent"] = job_data["clientSpent"]
-                updates["client_info"] = client_info
+        updates: dict = {}
+        if job_data.get("description") and not job.description:
+            updates["description"] = job_data["description"]
+        client_spent = job_data.get("client_spent") or job_data.get("clientSpent")
+        if client_spent and not (job.client_info or {}).get("clientSpent"):
+            client_info = dict(job.client_info or {})
+            client_info["clientSpent"] = client_spent
+            updates["client_info"] = client_info
 
-            if updates:
-                await session.execute(
-                    update(Job).where(Job.upwork_id == job_id).values(**updates)
-                )
-                logger.debug(f"Enriched job {job_id} from {source}")
+        if updates:
+            await session.execute(
+                update(Job).where(Job.upwork_id == job_id).values(**updates)
+            )
+            logger.debug(f"Enriched job {job_id} from {source}")
+
+
+# ── Parsers ───────────────────────────────────────────────────────────────────
+
+def parse_posted_time(relative: str | None) -> str | None:
+    """
+    Convert Upwork relative string ('12 minutes ago', 'about 1 hour ago')
+    to an ISO 8601 UTC datetime string.
+    Returns None for unrecognised formats.
+    """
+    if not relative:
+        return None
+    s = relative.strip().lower()
+    now = datetime.now(timezone.utc)
+
+    m = re.search(r'(\d+)\s+(second|minute|hour|day|week)s?\s+ago', s)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        delta = {
+            "second": timedelta(seconds=n),
+            "minute": timedelta(minutes=n),
+            "hour":   timedelta(hours=n),
+            "day":    timedelta(days=n),
+            "week":   timedelta(weeks=n),
+        }[unit]
+        return (now - delta).isoformat()
+
+    if any(x in s for x in ("just now", "moment", "recently")):
+        return now.isoformat()
+
+    return None
 
 
 def _parse_budget_field(budget_raw) -> dict | None:

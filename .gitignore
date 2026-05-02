@@ -40,6 +40,6 @@ Thumbs.db
 # Playwright
 playwright-report/
 test-results/
-search-page-source.html
+outerhtml.html
 
 

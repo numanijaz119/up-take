@@ -1,0 +1,377 @@
+/* ── Reset / base ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --green:       #14a800;
+    --green-dark:  #108a00;
+    --red:         #c62828;
+    --gray:        #888;
+    --border:      #e0e0e0;
+    --bg:          #fff;
+    --surface:     #f7f7f7;
+    --text:        #1a1a1a;
+    --muted:       #666;
+    --radius:      6px;
+}
+
+body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+    width: 420px;
+    min-width: 320px;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* ── Header ────────────────────────────────────────────────────── */
+header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+}
+.brand > div {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.logo       { width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0; }
+.brand-name { font-size: 15px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+.version    { font-size: 12px; font-weight: 400; color: var(--muted); }
+.brand-sub  {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* big start/stop button — never shrinks */
+.toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 999px;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.05s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.toggle-btn:active                { transform: scale(0.97); }
+.toggle-btn.off                   { background: var(--green);  color: #fff; }
+.toggle-btn.off:hover             { background: var(--green-dark); }
+.toggle-btn.on                    { background: var(--red);    color: #fff; }
+.toggle-btn.on:hover              { background: #a71f1f; }
+.toggle-btn.disabled              { background: #ccc; color: #fff; cursor: not-allowed; }
+.toggle-btn.disabled:active       { transform: none; }
+.toggle-icon { font-size: 14px; }
+
+/* ── Tab bar ───────────────────────────────────────────────────── */
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    padding: 0 6px;
+    gap: 2px;
+}
+.tab {
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 9px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    margin-bottom: -1px;
+    transition: color 0.1s, border-color 0.1s;
+    white-space: nowrap;
+}
+.tab:hover  { color: var(--text); }
+.tab.active { color: var(--green); font-weight: 600; border-bottom-color: var(--green); }
+
+/* ── Tab panels ────────────────────────────────────────────────── */
+.tab-panel        { display: none; padding: 12px 14px 14px; }
+.tab-panel.active { display: block; }
+
+h2 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 10px;
+}
+
+.tab-indicator {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 4px;
+}
+
+/* ── Not-eligible hint ─────────────────────────────────────────── */
+.not-eligible {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    margin-bottom: 10px;
+    color: #7a5e00;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+/* ── Interval rows ─────────────────────────────────────────────── */
+.iv-row {
+    margin-bottom: 8px;
+}
+
+/* The radio + label line */
+.preset {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 0;
+    cursor: pointer;
+    font-size: 13px;
+    border-radius: var(--radius);
+}
+.preset input[type="radio"] {
+    accent-color: var(--green);
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+/* Inline inputs that appear under their radio when selected */
+.iv-inputs {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    padding: 5px 0 3px 21px;  /* indent aligns with label text */
+    color: var(--muted);
+}
+.iv-inputs.visible { display: flex; }
+
+.sec-input {
+    width: 70px;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: center;
+}
+.rand-input {
+    width: 60px;
+    padding: 3px 5px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: center;
+}
+input:focus { outline: none; border-color: var(--green); }
+
+/* ── Options checkboxes ────────────────────────────────────────── */
+.opt-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 5px 0;
+    cursor: pointer;
+    font-size: 13px;
+}
+.opt-row input[type="checkbox"] {
+    accent-color: var(--green);
+    margin-top: 2px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+.opt-row small { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+.quiet-input {
+    width: 38px;
+    padding: 1px 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.divider { height: 1px; background: var(--border); margin: 10px 0; }
+
+/* ── URLs tab ──────────────────────────────────────────────────── */
+.urls-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+
+.add-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--green);
+    background: #fff;
+    color: var(--green);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.1s;
+}
+.add-btn:hover { background: var(--green); color: #fff; }
+
+.hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.url-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+.url-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.url-item span:not(.dot) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.url-item .dot      { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; flex-grow: 0; }
+.url-item .rm-btn   { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 2px; flex-shrink: 0; line-height: 1; }
+.url-item .rm-btn:hover { color: var(--red); }
+
+.add-url-form { margin-top: 8px; }
+.add-url-form input {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 12px;
+    margin-bottom: 6px;
+}
+.url-form-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+.ghost-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: var(--radius);
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--muted);
+}
+.ghost-btn:hover { background: var(--surface); }
+
+.confirm-btn {
+    padding: 5px 14px;
+    border: none;
+    background: var(--green);
+    color: #fff;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.confirm-btn:hover { background: var(--green-dark); }
+
+.hidden { display: none !important; }
+
+/* ── Status tab ────────────────────────────────────────────────── */
+.status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 4px;
+}
+.status-label { font-weight: 600; min-width: 56px; }
+.status-url   { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+.badge         { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.badge.online  { background: rgba(20,168,0,0.12); color: var(--green-dark); }
+.badge.offline { background: rgba(198,40,40,0.12); color: var(--red); }
+.badge.unknown { background: #eee; color: var(--muted); }
+
+.active-tabs {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+.active-tab-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+/* Highlight whichever row is the currently open tab */
+.active-tab-item.current {
+    border-color: var(--green);
+    background: rgba(20,168,0,0.05);
+}
+.active-tab-item .tab-url  { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.active-tab-item .tab-mode { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.active-tab-item .countdown {
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--green-dark);
+    white-space: nowrap;
+}
+.active-tab-item .stop-small {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--muted);
+    flex-shrink: 0;
+}
+.active-tab-item .stop-small:hover { border-color: var(--red); color: var(--red); }
+
+.field-label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 7px;
+    font-size: 12px;
+    color: var(--muted);
+}
+.full-input {
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 12px;
+    width: 100%;
+}
+.btn-row { display: flex; gap: 6px; margin-bottom: 6px; }

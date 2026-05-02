@@ -41,6 +41,10 @@ class ChannelRegistry:
         self._channel_classes[channel_id] = channel_class
         logger.info(f"Registered channel: {channel_id}")
 
+    def get(self, channel_id: str) -> "DetectionChannel | None":
+        """Return the running instance of a channel by ID, or None."""
+        return self._instances.get(channel_id)
+
     def list_channels(self) -> list[dict]:
         """Return metadata for all registered channels."""
         result = []

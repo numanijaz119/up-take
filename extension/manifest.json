@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Upwork Job Sentinel (Up-take)",
+  "version": "1.0.0",
+  "description": "Observes Upwork job feeds in your own browser and forwards new jobs to your local Up-take backend.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.upwork.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.upwork.com/nx/find-work/*",
+        "https://www.upwork.com/nx/search/jobs*"
+      ],
+      "js": ["content_script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["extractor.js"],
+      "matches": ["https://www.upwork.com/*"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Up-take",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

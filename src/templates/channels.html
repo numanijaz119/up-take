@@ -18,44 +18,11 @@
     </div>
   </div>
 
-  <!-- Search Configs section -->
-  <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h2 class="text-sm font-semibold text-gray-200">Search Configurations</h2>
-        <p class="text-xs text-gray-500 mt-0.5">Upwork search URLs the browser channel will monitor.</p>
-      </div>
-      <button onclick="showAddConfig()"
-        class="text-xs bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg transition">
-        + Add Config
-      </button>
-    </div>
-
-    <div id="config-list"></div>
-
-    <!-- Add config form (hidden by default) -->
-    <div id="add-config-form" class="hidden mt-4 bg-gray-800 rounded-lg p-4 space-y-3">
-      <input id="cfg-name" type="text" placeholder="Name (e.g. Python Backend)"
-        class="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:border-indigo-500 outline-none" />
-      <input id="cfg-url" type="url" placeholder="Upwork search URL"
-        class="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:border-indigo-500 outline-none" />
-      <input id="cfg-category" type="text" placeholder="Category (optional)"
-        class="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:border-indigo-500 outline-none" />
-      <div class="flex gap-2">
-        <button onclick="saveConfig()"
-          class="text-sm bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition">Save</button>
-        <button onclick="document.getElementById('add-config-form').classList.add('hidden')"
-          class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-lg transition">Cancel</button>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <script>
   document.addEventListener('DOMContentLoaded', () => {
     loadChannels();
-    loadConfigs();
   });
 
   async function loadChannels() {
@@ -126,57 +93,6 @@
     showToast(data.message || 'Session triggered');
   }
 
-  async function loadConfigs() {
-    const r = await fetch('/api/v1/search-configs/');
-    const data = await r.json();
-    const el = document.getElementById('config-list');
-    if (!data.configs?.length) {
-      el.innerHTML = '<p class="text-sm text-gray-500">No search configurations yet. Add one above.</p>';
-      return;
-    }
-    el.innerHTML = data.configs.map(c => `
-      <div class="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
-        <div class="min-w-0">
-          <p class="text-sm text-gray-200">${c.name}</p>
-          <p class="text-xs text-gray-500 truncate max-w-md">${c.url}</p>
-        </div>
-        <div class="flex items-center gap-2 ml-3">
-          <span class="text-xs px-1.5 py-0.5 rounded ${c.is_active ? 'bg-green-900 text-green-300' : 'bg-gray-800 text-gray-500'}">
-            ${c.is_active ? 'Active' : 'Inactive'}
-          </span>
-          <button onclick="deleteConfig('${c.id}')"
-            class="text-xs text-red-400 hover:text-red-300 transition">Delete</button>
-        </div>
-      </div>`).join('');
-  }
 
-  function showAddConfig() {
-    document.getElementById('add-config-form').classList.remove('hidden');
-  }
-
-  async function saveConfig() {
-    const name = document.getElementById('cfg-name').value.trim();
-    const url = document.getElementById('cfg-url').value.trim();
-    const category = document.getElementById('cfg-category').value.trim();
-    if (!name || !url) { showToast('Name and URL are required'); return; }
-    await fetch('/api/v1/search-configs/', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name, url, category: category || null}),
-    });
-    document.getElementById('add-config-form').classList.add('hidden');
-    document.getElementById('cfg-name').value = '';
-    document.getElementById('cfg-url').value = '';
-    document.getElementById('cfg-category').value = '';
-    showToast('Search config added');
-    loadConfigs();
-  }
-
-  async function deleteConfig(id) {
-    if (!confirm('Delete this search config?')) return;
-    await fetch(`/api/v1/search-configs/${id}`, {method: 'DELETE'});
-    showToast('Deleted');
-    loadConfigs();
-  }
 </script>
 {% endblock %}

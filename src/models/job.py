@@ -30,7 +30,12 @@ class Job(Base):
 
     analyses: Mapped[list["JobAnalysis"]] = relationship("JobAnalysis", back_populates="job", cascade="all, delete-orphan")
     proposals: Mapped[list["Proposal"]] = relationship("Proposal", back_populates="job", cascade="all, delete-orphan")
-    detections: Mapped[list["Detection"]] = relationship("Detection", back_populates="job_record", cascade="all, delete-orphan")
+    detections: Mapped[list["Detection"]] = relationship(
+        "Detection",
+        primaryjoin="Job.upwork_id == foreign(Detection.upwork_job_id)",
+        back_populates="job_record",
+        cascade="all, delete-orphan",
+    )
 
 
 class Detection(Base):

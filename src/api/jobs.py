@@ -1,4 +1,6 @@
+import re
 import uuid
+from datetime import timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,7 +99,59 @@ async def receive_observed_jobs(payload: dict):
     return {"received": len(jobs), "new": new_count}
 
 
+def _utc_iso(value) -> str | None:
+    """Return an ISO 8601 string guaranteed to carry +00:00 so browsers parse it as UTC."""
+    if value is None:
+        return None
+    iso = value.isoformat() if hasattr(value, 'isoformat') else str(value)
+    if iso and 'T' in iso and not iso.endswith(('Z', '+00:00')) and '+' not in iso[10:]:
+        iso += '+00:00'
+    return iso
+
+
+_UNIT_DELTA = {
+    'second': lambda n: timedelta(seconds=n),
+    'minute': lambda n: timedelta(minutes=n),
+    'hour':   lambda n: timedelta(hours=n),
+    'day':    lambda n: timedelta(days=n),
+    'week':   lambda n: timedelta(weeks=n),
+}
+
+
+def _rel_to_abs(relative: str, anchor) -> str | None:
+    """
+    Convert a relative string ('8 minutes ago') to an absolute UTC ISO string,
+    anchored to `anchor` (the detection datetime) rather than 'now'.
+    This gives a stable, drift-free absolute post time.
+    """
+    s = relative.strip().lower()
+    if not anchor:
+        return None
+    # Make anchor UTC-aware if stored as naive
+    if hasattr(anchor, 'tzinfo') and anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
+    m = re.search(r'(\d+)\s+(second|minute|hour|day|week)s?\s+ago', s)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        return _utc_iso(anchor - _UNIT_DELTA[unit](n))
+    if any(x in s for x in ('just now', 'moment', 'recently')):
+        return _utc_iso(anchor)
+    return None
+
+
 def _job_out(j: Job) -> dict:
+    raw = j.raw_data or {}
+    raw_posted_str = raw.get("posted_time") or raw.get("postedTime")
+
+    # Absolute UTC post time — prefer stored value, fall back to computing
+    # from raw_data relative to detection time (fixes jobs stored before snake_case fix)
+    if j.posted_at and 'T' in str(j.posted_at):
+        posted_at_abs = _utc_iso(j.posted_at)
+    elif raw_posted_str and j.detected_at:
+        posted_at_abs = _rel_to_abs(raw_posted_str, j.detected_at)
+    else:
+        posted_at_abs = None
+
     return {
         "id": str(j.id),
         "upwork_id": j.upwork_id,
@@ -111,8 +165,9 @@ def _job_out(j: Job) -> dict:
         "client_info": j.client_info,
         "proposals_count": j.proposals_count,
         "url": j.url,
-        "posted_at": j.posted_at,
-        "detected_at": j.detected_at.isoformat() if j.detected_at else None,
+        "posted_at": posted_at_abs,          # absolute UTC ISO — used for live timeAgo()
+        "posted_at_raw": raw_posted_str,      # original scraped string — shown as label
+        "detected_at": _utc_iso(j.detected_at),
         "detected_via": j.detected_via,
         "status": j.status,
     }

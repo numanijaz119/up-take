@@ -1,95 +1,100 @@
-from pydantic_settings import BaseSettings
-from typing import List, Tuple
-from datetime import time as dt_time
+from decouple import config
 
 
-class Settings(BaseSettings):
-    # Database
-    database_url: str = "postgresql+asyncpg://uptake:uptake_secret@localhost:5432/uptake"
+class Settings:
+    def __init__(self):
+        # ── Database ──────────────────────────────────────────────────────────
+        self.database_url: str = config(
+            "DATABASE_URL",
+            default="postgresql+asyncpg://uptake:uptake_secret@localhost:5432/uptake",
+        )
 
-    # Redis
-    redis_url: str = "redis://localhost:6379"
+        # ── Redis ─────────────────────────────────────────────────────────────
+        self.redis_url: str = config("REDIS_URL", default="redis://localhost:6379")
 
-    # Anthropic
-    anthropic_api_key: str = ""
+        # ── Anthropic ─────────────────────────────────────────────────────────
+        self.anthropic_api_key: str = config("ANTHROPIC_API_KEY", default="")
 
-    # Telegram
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
+        # ── Telegram ──────────────────────────────────────────────────────────
+        self.telegram_bot_token: str = config("TELEGRAM_BOT_TOKEN", default="")
+        self.telegram_chat_id: str = config("TELEGRAM_CHAT_ID", default="")
 
-    # App
-    secret_key: str = "change-me-to-random-secret"
-    debug: bool = False
-    log_level: str = "INFO"
+        # ── App ───────────────────────────────────────────────────────────────
+        self.debug: bool = config("DEBUG", default=False, cast=bool)
+        self.log_level: str = config("LOG_LEVEL", default="INFO")
 
-    # Browser
-    browser_headless: bool = False
-    browser_timezone: str = "America/New_York"
+        # ── Pipeline Thresholds ───────────────────────────────────────────────
+        self.min_opportunity_score: int = config(
+            "MIN_OPPORTUNITY_SCORE", default=55, cast=int
+        )
+        self.min_proposal_quality: float = config(
+            "MIN_PROPOSAL_QUALITY", default=7.0, cast=float
+        )
 
-    # ── Session Scheduler ─────────────────────────────────
-    session_duration_mean: int = 720      # 12 min in seconds
-    session_duration_stddev: int = 240    # 4 min
-    session_duration_min: int = 300       # 5 min
-    session_duration_max: int = 1500      # 25 min
-    searches_per_session_min: int = 2
-    searches_per_session_max: int = 4
+        # ── Safety Limits ─────────────────────────────────────────────────────
+        self.max_proposals_per_day: int = config(
+            "MAX_PROPOSALS_PER_DAY", default=12, cast=int
+        )
+        self.max_proposals_per_hour: int = config(
+            "MAX_PROPOSALS_PER_HOUR", default=3, cast=int
+        )
+        self.min_seconds_between_proposals: int = config(
+            "MIN_SECONDS_BETWEEN_PROPOSALS", default=300, cast=int
+        )
+        self.active_hours_start: int = config(
+            "ACTIVE_HOURS_START", default=8, cast=int
+        )
+        self.active_hours_end: int = config("ACTIVE_HOURS_END", default=23, cast=int)
+        self.max_connects_per_day: int = config(
+            "MAX_CONNECTS_PER_DAY", default=50, cast=int
+        )
+        self.max_proposal_word_overlap: float = config(
+            "MAX_PROPOSAL_WORD_OVERLAP", default=0.30, cast=float
+        )
 
-    # ── Browser Behavior Probabilities ────────────────────
-    scroll_back_probability: float = 0.05
-    mid_scroll_pause_probability: float = 0.15
-    tile_hover_probability: float = 0.40
-    job_detail_open_probability: float = 0.35
-    distraction_probability: float = 0.30
+        # ── LLM ───────────────────────────────────────────────────────────────
+        self.llm_model: str = config(
+            "LLM_MODEL", default="claude-sonnet-4-20250514"
+        )
+        self.analysis_temperature: float = config(
+            "ANALYSIS_TEMPERATURE", default=0.2, cast=float
+        )
+        self.generation_temperature: float = config(
+            "GENERATION_TEMPERATURE", default=0.7, cast=float
+        )
+        self.quality_check_temperature: float = config(
+            "QUALITY_CHECK_TEMPERATURE", default=0.1, cast=float
+        )
 
-    # ── Pipeline Thresholds ───────────────────────────────
-    min_opportunity_score: int = 55
-    min_proposal_quality: float = 7.0
+        # ── Extension Channel ─────────────────────────────────────────────────
+        self.extension_api_token: str = config(
+            "EXTENSION_API_TOKEN", default="change-me-in-env"
+        )
+        self.extension_heartbeat_timeout_seconds: int = config(
+            "EXTENSION_HEARTBEAT_TIMEOUT_SECONDS", default=300, cast=int
+        )
+        self.extension_peak_hours_tz: str = config(
+            "EXTENSION_PEAK_HOURS_TZ", default="America/New_York"
+        )
+        self.extension_peak_hours_start: int = config(
+            "EXTENSION_PEAK_HOURS_START", default=9, cast=int
+        )
+        self.extension_peak_hours_end: int = config(
+            "EXTENSION_PEAK_HOURS_END", default=22, cast=int
+        )
+        self.extension_no_jobs_alert_minutes: int = config(
+            "EXTENSION_NO_JOBS_ALERT_MINUTES", default=30, cast=int
+        )
 
-    # ── Safety ───────────────────────────────────────────
-    max_proposals_per_day: int = 12
-    max_proposals_per_hour: int = 3
-    min_seconds_between_proposals: int = 300
-    active_hours_start: int = 8
-    active_hours_end: int = 23
-    max_connects_per_day: int = 50
-    max_proposal_word_overlap: float = 0.30
-
-    # ── LLM ──────────────────────────────────────────────
-    llm_model: str = "claude-sonnet-4-20250514"
-    analysis_temperature: float = 0.2
-    generation_temperature: float = 0.7
-    quality_check_temperature: float = 0.1
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+        # ── Pipeline ──────────────────────────────────────────────────────────
+        # Jobs older than this are silently dropped before entering the pipeline.
+        self.max_job_age_hours: int = config(
+            "MAX_JOB_AGE_HOURS", default=2, cast=int
+        )
+        # Hard cap on simultaneous LLM calls (analysis + generation combined).
+        self.pipeline_max_concurrent_llm: int = config(
+            "PIPELINE_MAX_CONCURRENT_LLM", default=3, cast=int
+        )
 
 
 settings = Settings()
-
-# Day-of-week activity weights (0=Monday, 6=Sunday)
-DAY_WEIGHTS = {
-    0: 1.0,   # Monday
-    1: 0.95,  # Tuesday
-    2: 0.9,   # Wednesday
-    3: 0.85,  # Thursday
-    4: 0.7,   # Friday
-    5: 0.4,   # Saturday
-    6: 0.25,  # Sunday
-}
-
-# Hour-of-day activity weights
-HOUR_WEIGHTS = {
-    9:  0.9, 10: 1.0, 11: 0.95,
-    12: 0.5,
-    13: 0.6, 14: 0.85, 15: 1.0,
-    16: 0.9, 17: 0.7,
-    18: 0.4, 20: 0.65, 22: 0.3,
-}
-
-# Work windows (start_hour, start_min, end_hour, end_min)
-WORK_WINDOWS: List[Tuple[dt_time, dt_time]] = [
-    (dt_time(9, 0),  dt_time(12, 30)),
-    (dt_time(14, 0), dt_time(18, 0)),
-    (dt_time(20, 0), dt_time(22, 30)),
-]

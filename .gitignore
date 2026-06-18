@@ -37,9 +37,6 @@ Thumbs.db
 *.swp
 *.swo
 
-# Playwright
-playwright-report/
-test-results/
 outerhtml.html
-
+docs/
 
